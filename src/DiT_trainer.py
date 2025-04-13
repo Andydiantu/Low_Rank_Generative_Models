@@ -8,7 +8,7 @@ from accelerate.utils import ProjectConfiguration
 from diffusers import DDPMPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from huggingface_hub import create_repo, upload_folder
-from preprocess import get_dataloader
+from preprocessing import create_dataloader
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 
@@ -180,7 +180,7 @@ def main():
 
     config = TrainingConfig()
 
-    train_loader = get_dataloader("uoft-cs/cifar10", "train", config)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)

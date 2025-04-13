@@ -1,0 +1,7 @@
+accelerate==1.6.0
+datasets==3.5.0
+diffusers==0.33.1
+huggingface_hub==0.30.2
+torch==2.6.0
+torchvision==0.21.0
+tqdm==4.67.1

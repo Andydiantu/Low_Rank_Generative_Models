@@ -3,7 +3,7 @@ from datasets import load_dataset
 from torchvision import transforms
 
 
-def load_dataset(dataset_name, split):
+def load_dataset_from_hf(dataset_name, split):
     dataset = load_dataset(dataset_name, split=split)
     print(f"Loaded dataset {dataset_name} {split} split with {len(dataset)} images")
     return dataset
@@ -30,7 +30,7 @@ def preprocess_dataset(dataset, config):
 
 
 def create_dataloader(dataset_name, split, config):
-    dataset = load_dataset(dataset_name, split=split)
+    dataset = load_dataset_from_hf(dataset_name, split=split)
     dataset = preprocess_dataset(dataset, config)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=config.train_batch_size, shuffle=True
