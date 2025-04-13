@@ -139,6 +139,7 @@ class DiTTrainer:
         images = pipeline(
             batch_size=config.eval_batch_size,
             generator=torch.manual_seed(config.seed),
+            num_inference_steps=200,
         ).images
 
         # Make a grid out of the images
