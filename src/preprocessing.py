@@ -11,6 +11,7 @@ def load_dataset_from_hf(dataset_name, split):
 
 def preprocess_dataset(dataset, config):
     # TODO: Parameterise the proprocessing transformations
+    # TODO: Add other transformations
     preprocess = transforms.Compose(
         [
             transforms.Resize((config.image_size, config.image_size)),
@@ -33,6 +34,13 @@ def create_dataloader(dataset_name, split, config):
     dataset = load_dataset_from_hf(dataset_name, split=split)
     dataset = preprocess_dataset(dataset, config)
     dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=config.train_batch_size, shuffle=True
+        dataset, 
+        batch_size=config.train_batch_size, 
+        shuffle=True, 
+        num_workers=4, 
+        pin_memory=True,  
+        persistent_workers=True, 
+        prefetch_factor=2,  
+
     )
     return dataloader

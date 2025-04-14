@@ -1,11 +1,11 @@
 import os
 from pathlib import Path
-from tkinter import Image
+from PIL import Image
 
 import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-from diffusers import DDPMPipeline
+from diffusers import DDIMPipeline, DDIMScheduler
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from huggingface_hub import create_repo, upload_folder
 from preprocessing import create_dataloader
@@ -74,12 +74,17 @@ class DiTTrainer:
                     (batch_size,),
                     device=clean_images.device,
                 ).long()
-                class_labels = torch.zeros(
-                    batch_size, dtype=torch.long, device=clean_images.device
-                )
+                
+                # For DiT models, class conditioning is important
+                class_labels = None
+                if "label" in batch:
+                    class_labels = batch["label"]
+                else:
+                    class_labels = torch.zeros(
+                        batch_size, dtype=torch.long, device=clean_images.device
+                    )
 
                 # Add noise to the clean images according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
                 noisy_images = self.noise_scheduler.add_noise(
                     clean_images, noise, timesteps
                 )
@@ -109,8 +114,9 @@ class DiTTrainer:
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
-                pipeline = DDPMPipeline(
-                    unet=accelerator.unwrap_model(model), scheduler=self.noise_scheduler
+                pipeline = DDIMPipeline(  
+                    unet=accelerator.unwrap_model(model), 
+                    scheduler=self.noise_scheduler
                 )
 
                 if (
@@ -142,10 +148,8 @@ class DiTTrainer:
             num_inference_steps=200,
         ).images
 
-        # Make a grid out of the images
         image_grid = self.make_grid(images, rows=4, cols=4)
 
-        # Save the images
         test_dir = os.path.join(config.output_dir, "samples")
         os.makedirs(test_dir, exist_ok=True)
         image_grid.save(f"{test_dir}/{epoch:04d}.png")
@@ -158,24 +162,24 @@ def main():
 
     @dataclass
     class TrainingConfig:
-        image_size = 64  # the generated image resolution
+        image_size = 64 
         train_batch_size = 16
-        eval_batch_size = 16  # how many images to sample during evaluation
+        eval_batch_size = 16 
         num_epochs = 50
         gradient_accumulation_steps = 1
         learning_rate = 1e-4
         lr_warmup_steps = 500
-        save_image_epochs = 10
+        save_image_epochs = 1 # for testing
         save_model_epochs = 30
         mixed_precision = (
-            "fp16"  # `no` for float32, `fp16` for automatic mixed precision
+            "fp16"  
         )
-        output_dir = "DiT"  # the model namy locally and on the HF Hub
+        output_dir = "DiT"  
 
-        push_to_hub = False  # whether to upload the saved model to the HF Hub
+        push_to_hub = False
         hub_private_repo = False
         overwrite_output_dir = (
-            True  # overwrite the old model when re-running the notebook
+            True
         )
         seed = 0
 
