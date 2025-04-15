@@ -5,7 +5,7 @@ from PIL import Image
 import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-from diffusers import DDIMPipeline, DDIMScheduler
+from diffusers import DDIMPipeline, DDIMScheduler, DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from huggingface_hub import create_repo, upload_folder
 from preprocessing import create_dataloader
@@ -13,6 +13,40 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 from DiT import create_model, create_noise_scheduler
+
+
+
+import torch
+from diffusers import AutoencoderKL
+
+class IdentityVAE(torch.nn.Module):
+    def encode(self, x):
+        return x
+
+    def decode(self, z):
+        return z
+
+    def forward(self, x):
+        return x
+
+class DummyAutoencoderKL(AutoencoderKL):
+    def __init__(self):
+        super().__init__()
+        self.encoder = IdentityVAE()
+        self.decoder = IdentityVAE()
+
+    def encode(self, x):
+        return type('DummyOutput', (object,), {'latent_dist': type('DummyLatentDist', (object,), {'sample': lambda: x})})()
+
+    def decode(self, z):
+        return type('DummyOutput', (object,), {'sample': z})
+
+    def forward(self, x):
+        return x
+
+
+
+
 
 
 class DiTTrainer:
@@ -114,9 +148,10 @@ class DiTTrainer:
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
-                pipeline = DDIMPipeline(  
-                    unet=accelerator.unwrap_model(model), 
-                    scheduler=self.noise_scheduler
+                pipeline = DiTPipeline(  
+                    transformer=accelerator.unwrap_model(model), 
+                    scheduler=self.noise_scheduler,
+                    vae=DummyAutoencoderKL()
                 )
 
                 if (
@@ -143,9 +178,9 @@ class DiTTrainer:
         # Sample some images from random noise (this is the backward diffusion process).
         # The default pipeline output type is `List[PIL.Image]`
         images = pipeline(
-            batch_size=config.eval_batch_size,
+            class_labels=torch.zeros(config.eval_batch_size, dtype=torch.long),
             generator=torch.manual_seed(config.seed),
-            num_inference_steps=200,
+            num_inference_steps=1000,
         ).images
 
         image_grid = self.make_grid(images, rows=4, cols=4)
@@ -169,7 +204,7 @@ def main():
         gradient_accumulation_steps = 1
         learning_rate = 1e-4
         lr_warmup_steps = 500
-        save_image_epochs = 1 # for testing
+        save_image_epochs = 10 # for testing
         save_model_epochs = 30
         mixed_precision = (
             "fp16"  

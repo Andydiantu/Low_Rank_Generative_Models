@@ -6,6 +6,7 @@ def create_model(config):
     model = DiTTransformer2DModel(
         sample_size=config.image_size,
         in_channels=3,
+        out_channels=3,
         num_layers=8,  
         num_attention_heads=8,
         attention_head_dim=32,
