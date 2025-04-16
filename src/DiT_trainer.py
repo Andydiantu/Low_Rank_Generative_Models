@@ -1,23 +1,20 @@
 import os
 from pathlib import Path
-from PIL import Image
 
 import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-from diffusers import DDIMPipeline, DDIMScheduler, DiTPipeline
+from diffusers import AutoencoderKL, DDIMPipeline, DDIMScheduler, DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from huggingface_hub import create_repo, upload_folder
-from preprocessing import create_dataloader
+from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 
+from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler
+from preprocessing import create_dataloader
 
-
-
-import torch
-from diffusers import AutoencoderKL
 
 class IdentityVAE(torch.nn.Module):
     def encode(self, x):
@@ -29,6 +26,7 @@ class IdentityVAE(torch.nn.Module):
     def forward(self, x):
         return x
 
+
 class DummyAutoencoderKL(AutoencoderKL):
     def __init__(self):
         super().__init__()
@@ -36,17 +34,17 @@ class DummyAutoencoderKL(AutoencoderKL):
         self.decoder = IdentityVAE()
 
     def encode(self, x):
-        return type('DummyOutput', (object,), {'latent_dist': type('DummyLatentDist', (object,), {'sample': lambda: x})})()
+        return type(
+            "DummyOutput",
+            (object,),
+            {"latent_dist": type("DummyLatentDist", (object,), {"sample": lambda: x})},
+        )()
 
     def decode(self, z):
-        return type('DummyOutput', (object,), {'sample': z})
+        return type("DummyOutput", (object,), {"sample": z})
 
     def forward(self, x):
         return x
-
-
-
-
 
 
 class DiTTrainer:
@@ -73,7 +71,7 @@ class DiTTrainer:
             project_dir=self.config.output_dir, logging_dir=logging_dir
         )
         accelerator = Accelerator(
-            mixed_precision=self.config.mixed_precision,
+            # mixed_precision=self.config.mixed_precision,
             gradient_accumulation_steps=self.config.gradient_accumulation_steps,
             log_with="tensorboard",
             project_config=accelerator_project_config,
@@ -108,7 +106,7 @@ class DiTTrainer:
                     (batch_size,),
                     device=clean_images.device,
                 ).long()
-                
+
                 # For DiT models, class conditioning is important
                 class_labels = None
                 if "label" in batch:
@@ -148,10 +146,10 @@ class DiTTrainer:
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
-                pipeline = DiTPipeline(  
-                    transformer=accelerator.unwrap_model(model), 
+                pipeline = DiTPipeline(
+                    transformer=accelerator.unwrap_model(model),
                     scheduler=self.noise_scheduler,
-                    vae=DummyAutoencoderKL()
+                    vae=DummyAutoencoderKL(),
                 )
 
                 if (
@@ -191,33 +189,6 @@ class DiTTrainer:
 
 
 def main():
-    # TODO: using import args to parameterise the model config
-
-    from dataclasses import dataclass
-
-    @dataclass
-    class TrainingConfig:
-        image_size = 64 
-        train_batch_size = 16
-        eval_batch_size = 16 
-        num_epochs = 50
-        gradient_accumulation_steps = 1
-        learning_rate = 1e-4
-        lr_warmup_steps = 500
-        save_image_epochs = 10 # for testing
-        save_model_epochs = 30
-        mixed_precision = (
-            "fp16"  
-        )
-        output_dir = "DiT"  
-
-        push_to_hub = False
-        hub_private_repo = False
-        overwrite_output_dir = (
-            True
-        )
-        seed = 0
-
     config = TrainingConfig()
 
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
