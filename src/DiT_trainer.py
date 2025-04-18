@@ -6,10 +6,12 @@ from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from diffusers import AutoencoderKL, DDIMPipeline, DDIMScheduler, DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
+from diffusers.models import AutoencoderKL
 from huggingface_hub import create_repo, upload_folder
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
+
 
 from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler
@@ -48,12 +50,11 @@ class DummyAutoencoderKL(AutoencoderKL):
 
 
 class DiTTrainer:
-    def __init__(self, model, noise_scheduler, train_dataloader, config):
+    def __init__(self, model, noise_scheduler, train_dataloader, config, vae = False):
         self.model = model
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
         self.config = config
-
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
@@ -64,6 +65,11 @@ class DiTTrainer:
             num_warmup_steps=self.config.lr_warmup_steps,
             num_training_steps=(len(self.train_dataloader) * self.config.num_epochs),
         )
+
+        if vae: 
+            self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-ema")
+        else:
+            self.vae = DummyAutoencoderKL()
 
     def train_loop(self):
         logging_dir = os.path.join(self.config.output_dir, "logs")
@@ -80,8 +86,8 @@ class DiTTrainer:
             os.makedirs(self.config.output_dir, exist_ok=True)
             accelerator.init_trackers("train_example")
 
-        model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-            self.model, self.optimizer, self.train_dataloader, self.lr_scheduler
+        model, optimizer, train_dataloader, lr_scheduler, vae = accelerator.prepare(
+            self.model, self.optimizer, self.train_dataloader, self.lr_scheduler, self.vae  
         )
 
         global_step = 0
@@ -95,9 +101,10 @@ class DiTTrainer:
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
+                latents = self.vae.encode(clean_images).latent_dist.sample()
                 # Sample noise to add to the images
-                noise = torch.randn(clean_images.shape).to(clean_images.device)
-                batch_size = clean_images.shape[0]
+                noise = torch.randn(latents.shape).to(latents.device)
+                batch_size = latents.shape[0]
 
                 # Sample a random timestep for each image
                 timesteps = torch.randint(
@@ -107,18 +114,18 @@ class DiTTrainer:
                     device=clean_images.device,
                 ).long()
 
-                # For DiT models, class conditioning is important
+                # Add dummy class labels if doing unconditional generation
                 class_labels = None
                 if "label" in batch:
                     class_labels = batch["label"]
                 else:
                     class_labels = torch.zeros(
-                        batch_size, dtype=torch.long, device=clean_images.device
+                            batch_size, dtype=torch.long, device=latents.device
                     )
 
                 # Add noise to the clean images according to the noise magnitude at each timestep
                 noisy_images = self.noise_scheduler.add_noise(
-                    clean_images, noise, timesteps
+                    latents, noise, timesteps
                 )
 
                 with accelerator.accumulate(model):
@@ -149,7 +156,7 @@ class DiTTrainer:
                 pipeline = DiTPipeline(
                     transformer=accelerator.unwrap_model(model),
                     scheduler=self.noise_scheduler,
-                    vae=DummyAutoencoderKL(),
+                    vae=self.vae,
                 )
 
                 if (
@@ -196,7 +203,7 @@ def main():
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
 
-    trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
+    trainer = DiTTrainer(model, noise_scheduler, train_loader, config, vae=True)
     trainer.train_loop()
 
 
