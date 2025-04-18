@@ -101,7 +101,7 @@ class DiTTrainer:
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
-                latents = self.vae.encode(clean_images).latent_dist.sample()
+                latents = vae.encode(clean_images).latent_dist.sample()
                 # Sample noise to add to the images
                 noise = torch.randn(latents.shape).to(latents.device)
                 batch_size = latents.shape[0]
@@ -153,6 +153,7 @@ class DiTTrainer:
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
+                # TODO: Seems very memory intensive here, could i reduce it?
                 pipeline = DiTPipeline(
                     transformer=accelerator.unwrap_model(model),
                     scheduler=self.noise_scheduler,
