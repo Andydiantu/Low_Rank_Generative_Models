@@ -154,23 +154,32 @@ class DiTTrainer:
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
                 # TODO: Seems very memory intensive here, could i reduce it?
-                pipeline = DiTPipeline(
-                    transformer=accelerator.unwrap_model(model),
-                    scheduler=self.noise_scheduler,
-                    vae=self.vae,
-                )
 
-                if (
-                    (epoch + 1) % self.config.save_image_epochs == 0
-                    or epoch == self.config.num_epochs - 1
-                ):
-                    self.evaluate(self.config, epoch, pipeline)
-
-                if (
-                    (epoch + 1) % self.config.save_model_epochs == 0
-                    or epoch == self.config.num_epochs - 1
-                ):
-                    pipeline.save_pretrained(self.config.output_dir)
+               if ((epoch + 1) % self.config.save_image_epochs == 0 or 
+                    (epoch + 1) % self.config.save_model_epochs == 0 or 
+                    epoch == self.config.num_epochs - 1):
+                 # Create pipeline with memory optimizations with autocast
+                    with torch.amp.autocast(enabled=True):
+                        pipeline = DiTPipeline(
+                            transformer=accelerator.unwrap_model(model),
+                            scheduler=self.noise_scheduler,
+                            vae=self.vae,
+                        )
+                        
+                        pipeline.enable_attention_slicing()
+                        
+                        # Evaluation
+                        if ((epoch + 1) % self.config.save_image_epochs == 0 or 
+                            epoch == self.config.num_epochs - 1):
+                            self.evaluate(self.config, epoch, pipeline)
+                        
+                        if ((epoch + 1) % self.config.save_model_epochs == 0 or 
+                            epoch == self.config.num_epochs - 1):
+                            pipeline.save_pretrained(self.config.output_dir)
+                
+                    # Explicit cleanup
+                    del pipeline
+                    torch.cuda.empty_cache() 
 
     # Code to visualise the current epoch generated images
     def make_grid(self, images, rows, cols):
