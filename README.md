@@ -1,22 +1,21 @@
 # Low Rank Generative Models
 
-This is the codebase of my MSc Dissertation at Imperial, focusing on exploring the applicatin of low rank method on generative models (such as Diffusion). 
+This is the codebase for my MSc Dissertation at Imperial, focusing on exploring the application of low-rank methods to generative models (such as Diffusion).
 
 # File Structure
 
-`notesbooks` folder contains exploratary jupyter notebook code.
+The `notebooks` folder contains exploratory Jupyter Notebook code.
 
-`src` folder contains training and architecture code.
+The `src` folder contains training and architecture code.
 
 # TODO
-- [ ] Add EMA
-- [ ] Add FID and BPD metrics
-- [ ] Add tensorborad for better logging
-- [ ] Implemented post-hoc low rank compression
-- [ ] Implmenet low rank training from scratch
+- [ ] Add EMA (Exponential Moving Average)
+- [ ] Add FID (Fréchet Inception Distance) and BPD (Bits Per Dimension) metrics
+- [ ] Add TensorBoard for better logging
+- [ ] Implement post-hoc low-rank compression
+- [ ] Implement low-rank training from scratch
 - [ ] Extend to EDM2 structure
 
-
-# Current Problem to Solve
-- [ ] Sampling stage create VRAM bottleneck, makes out of VRAM problem. 
-- [ ] Introduction of VAE in pipeline makes loss extremely high and unstable.
+# Current Problems to Solve
+- [ ] The sampling stage creates a VRAM bottleneck, leading to out-of-memory errors.
+- [ ] The introduction of a VAE (Variational Autoencoder) into the pipeline causes the loss to become extremely high and unstable.
