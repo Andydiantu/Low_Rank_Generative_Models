@@ -4,25 +4,20 @@ from pathlib import Path
 import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-from diffusers import AutoencoderKL, DiTPipeline
+from diffusers import DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
-from diffusers.models import AutoencoderKL
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 
-
 from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler
 from preprocessing import create_dataloader
-from vae import DummyAutoencoderKL, SD_VAE
-
-
-
+from vae import SD_VAE, DummyAutoencoderKL
 
 
 class DiTTrainer:
-    def __init__(self, model, noise_scheduler, train_dataloader, config, vae = False):
+    def __init__(self, model, noise_scheduler, train_dataloader, config, vae=False):
         self.model = model
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
@@ -38,7 +33,7 @@ class DiTTrainer:
             num_training_steps=(len(self.train_dataloader) * self.config.num_epochs),
         )
 
-        if vae: 
+        if vae:
             self.vae = SD_VAE()
         else:
             self.vae = DummyAutoencoderKL()
@@ -59,7 +54,11 @@ class DiTTrainer:
             accelerator.init_trackers("train_example")
 
         model, optimizer, train_dataloader, lr_scheduler, vae = accelerator.prepare(
-            self.model, self.optimizer, self.train_dataloader, self.lr_scheduler, self.vae  
+            self.model,
+            self.optimizer,
+            self.train_dataloader,
+            self.lr_scheduler,
+            self.vae,
         )
 
         global_step = 0
@@ -92,13 +91,11 @@ class DiTTrainer:
                     class_labels = batch["label"]
                 else:
                     class_labels = torch.zeros(
-                            batch_size, dtype=torch.long, device=latents.device
+                        batch_size, dtype=torch.long, device=latents.device
                     )
 
                 # Add noise to the clean images according to the noise magnitude at each timestep
-                noisy_images = self.noise_scheduler.add_noise(
-                    latents, noise, timesteps
-                )
+                noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
                 with accelerator.accumulate(model):
                     # Predict the noise residual
@@ -127,31 +124,37 @@ class DiTTrainer:
             if accelerator.is_main_process:
                 # TODO: Seems very memory intensive here, could i reduce it?
 
-               if ((epoch + 1) % self.config.save_image_epochs == 0 or 
-                    (epoch + 1) % self.config.save_model_epochs == 0 or 
-                    epoch == self.config.num_epochs - 1):
-                 # Create pipeline with memory optimizations with autocast
+                if (
+                    (epoch + 1) % self.config.save_image_epochs == 0
+                    or (epoch + 1) % self.config.save_model_epochs == 0
+                    or epoch == self.config.num_epochs - 1
+                ):
+                    # Create pipeline with memory optimizations with autocast
                     with torch.amp.autocast(device_type="cuda", enabled=True):
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae,
                         )
-                        
+
                         pipeline.enable_attention_slicing()
-                        
+
                         # Evaluation
-                        if ((epoch + 1) % self.config.save_image_epochs == 0 or 
-                            epoch == self.config.num_epochs - 1):
+                        if (
+                            (epoch + 1) % self.config.save_image_epochs == 0
+                            or epoch == self.config.num_epochs - 1
+                        ):
                             self.evaluate(self.config, epoch, pipeline)
-                        
-                        if ((epoch + 1) % self.config.save_model_epochs == 0 or 
-                            epoch == self.config.num_epochs - 1):
+
+                        if (
+                            (epoch + 1) % self.config.save_model_epochs == 0
+                            or epoch == self.config.num_epochs - 1
+                        ):
                             pipeline.save_pretrained(self.config.output_dir)
-                
+
                     # Explicit cleanup
                     del pipeline
-                    torch.cuda.empty_cache() 
+                    torch.cuda.empty_cache()
 
     # Code to visualise the current epoch generated images
     def make_grid(self, images, rows, cols):
