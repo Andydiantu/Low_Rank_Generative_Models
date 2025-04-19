@@ -159,7 +159,7 @@ class DiTTrainer:
                     (epoch + 1) % self.config.save_model_epochs == 0 or 
                     epoch == self.config.num_epochs - 1):
                  # Create pipeline with memory optimizations with autocast
-                    with torch.amp.autocast(enabled=True):
+                    with torch.amp.autocast(device_type="cuda", enabled=True):
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
