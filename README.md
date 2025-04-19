@@ -9,8 +9,8 @@ The `notebooks` folder contains exploratory Jupyter Notebook code.
 The `src` folder contains training and architecture code.
 
 # TODO
-- [ ] Add EMA (Exponential Moving Average)
-- [ ] Add FID (Fréchet Inception Distance) and BPD (Bits Per Dimension) metrics
+- [ ] Add EMA 
+- [ ] Add FID and BPD metrics
 - [ ] Add TensorBoard for better logging
 - [ ] Implement post-hoc low-rank compression
 - [ ] Implement low-rank training from scratch
@@ -18,4 +18,4 @@ The `src` folder contains training and architecture code.
 
 # Current Problems to Solve
 - [ ] The sampling stage creates a VRAM bottleneck, leading to out-of-memory errors.
-- [ ] The introduction of a VAE (Variational Autoencoder) into the pipeline causes the loss to become extremely high and unstable.
+- [ ] The introduction of a VAE into the pipeline causes the loss to become extremely high and unstable.
