@@ -4,10 +4,9 @@ from pathlib import Path
 import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
-from diffusers import AutoencoderKL, DDIMPipeline, DDIMScheduler, DiTPipeline
+from diffusers import AutoencoderKL, DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from diffusers.models import AutoencoderKL
-from huggingface_hub import create_repo, upload_folder
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
@@ -16,37 +15,10 @@ from tqdm.auto import tqdm
 from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler
 from preprocessing import create_dataloader
+from vae import DummyAutoencoderKL, SD_VAE
 
 
-class IdentityVAE(torch.nn.Module):
-    def encode(self, x):
-        return x
 
-    def decode(self, z):
-        return z
-
-    def forward(self, x):
-        return x
-
-
-class DummyAutoencoderKL(AutoencoderKL):
-    def __init__(self):
-        super().__init__()
-        self.encoder = IdentityVAE()
-        self.decoder = IdentityVAE()
-
-    def encode(self, x):
-        return type(
-            "DummyOutput",
-            (object,),
-            {"latent_dist": type("DummyLatentDist", (object,), {"sample": lambda: x})},
-        )()
-
-    def decode(self, z):
-        return type("DummyOutput", (object,), {"sample": z})
-
-    def forward(self, x):
-        return x
 
 
 class DiTTrainer:
@@ -67,7 +39,7 @@ class DiTTrainer:
         )
 
         if vae: 
-            self.vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-ema")
+            self.vae = SD_VAE()
         else:
             self.vae = DummyAutoencoderKL()
 
@@ -101,7 +73,7 @@ class DiTTrainer:
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
-                latents = vae.encode(clean_images).latent_dist.sample()
+                latents = self.vae.encode(clean_images)
                 # Sample noise to add to the images
                 noise = torch.randn(latents.shape).to(latents.device)
                 batch_size = latents.shape[0]
@@ -163,7 +135,7 @@ class DiTTrainer:
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
-                            vae=self.vae,
+                            vae=self.vae.vae,
                         )
                         
                         pipeline.enable_attention_slicing()
