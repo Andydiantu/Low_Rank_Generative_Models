@@ -17,7 +17,7 @@ from vae import SD_VAE, DummyAutoencoderKL
 
 
 class DiTTrainer:
-    def __init__(self, model, noise_scheduler, train_dataloader, config, vae=False):
+    def __init__(self, model, noise_scheduler, train_dataloader, config):
         self.model = model
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
@@ -33,7 +33,7 @@ class DiTTrainer:
             num_training_steps=(len(self.train_dataloader) * self.config.num_epochs),
         )
 
-        if vae:
+        if config.vae:
             self.vae = SD_VAE()
         else:
             self.vae = DummyAutoencoderKL()
@@ -72,7 +72,10 @@ class DiTTrainer:
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
-                latents = self.vae.encode(clean_images)
+                if self.config.vae:
+                    latents = self.vae.encode(clean_images)
+                else:
+                    latents = clean_images
                 # Sample noise to add to the images
                 noise = torch.randn(latents.shape).to(latents.device)
                 batch_size = latents.shape[0]
@@ -134,7 +137,7 @@ class DiTTrainer:
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
-                            vae=self.vae.vae,
+                            vae=self.vae.vae if self.config.vae else self.vae,
                         )
 
                         pipeline.enable_attention_slicing()
@@ -188,7 +191,7 @@ def main():
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
 
-    trainer = DiTTrainer(model, noise_scheduler, train_loader, config, vae=True)
+    trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
     trainer.train_loop()
 
 
