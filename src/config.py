@@ -16,6 +16,7 @@ class TrainingConfig:
     lr_warmup_steps = 500
     save_image_epochs = 10  # for testing
     save_model_epochs = 1
+    eval_dataset_size = 100
     # mixed_precision = (
     #     "fp16"
     # )
