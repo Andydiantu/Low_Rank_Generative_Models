@@ -14,6 +14,7 @@ from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
+from eval import Eval
 
 
 class DiTTrainer:
@@ -154,6 +155,12 @@ class DiTTrainer:
                             or epoch == self.config.num_epochs - 1
                         ):
                             pipeline.save_pretrained(self.config.output_dir)
+                            torch.save(model.state_dict(), os.path.join(self.config.output_dir, "model.pt"))
+
+
+
+
+
 
                     # Explicit cleanup
                     del pipeline
@@ -193,7 +200,17 @@ def main():
 
     trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
     trainer.train_loop()
-
+    
+    test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
+    eval = Eval(test_dataloader, eval_dataset_size=100)
+    pipeline = DiTPipeline(
+        transformer=model,
+        scheduler=noise_scheduler,
+        vae=trainer.vae.vae if config.vae else trainer.vae,
+    )
+    pipeline.enable_attention_slicing()
+    fid_score = eval.compute_metrics(pipeline)
+    print(f"FID Score: {fid_score}")
 
 if __name__ == "__main__":
     main()
