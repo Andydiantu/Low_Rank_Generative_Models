@@ -4,8 +4,8 @@ from diffusers import DDIMScheduler, DiTTransformer2DModel
 def create_model(config):
     model = DiTTransformer2DModel(
         sample_size=config.image_size,
-        in_channels=config.latent_channels,
-        out_channels=config.latent_channels,
+        in_channels=config.latent_channels if config.vae else config.pixel_channels,
+        out_channels=config.latent_channels if config.vae else config.pixel_channels,
         num_layers=8,  
         num_attention_heads=8,
         attention_head_dim=32,
