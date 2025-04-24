@@ -77,6 +77,8 @@ class DiTTrainer:
             progress_bar = tqdm(
                 total=len(self.train_dataloader),
                 disable=not accelerator.is_local_main_process,
+                dynamic_ncols=True,
+                leave=False  
             )
             progress_bar.set_description(f"Epoch {epoch}")
 
@@ -211,6 +213,8 @@ def main():
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
+
+    print(f"number of parameters in model: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
     trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
     trainer.train_loop()

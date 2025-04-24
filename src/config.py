@@ -6,12 +6,12 @@ from pathlib import Path
 @dataclass
 class TrainingConfig:
     image_size = 32      
-    train_batch_size = 64
+    train_batch_size = 128
     eval_batch_size = 16
-    num_epochs = 100
+    num_epochs = 200
     latent_channels = 4
     pixel_channels = 3
-    gradient_accumulation_steps = 2
+    gradient_accumulation_steps = 1
     learning_rate = 1e-4
     lr_warmup_steps = 500
     save_image_epochs = 10  # for testing
