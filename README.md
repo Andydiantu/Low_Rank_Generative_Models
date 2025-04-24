@@ -9,8 +9,8 @@ The `notebooks` folder contains exploratory Jupyter Notebook code.
 The `src` folder contains training and architecture code.
 
 # TODO
-- [ ] Add EMA 
-- [ ] Add FID and BPD metrics
+- [x] Add EMA 
+- [x] Add FID and BPD metrics
 - [ ] Add TensorBoard for better logging
 - [ ] Implement post-hoc low-rank compression
 - [ ] Implement low-rank training from scratch
