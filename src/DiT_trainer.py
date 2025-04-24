@@ -121,7 +121,9 @@ class DiTTrainer:
                     accelerator.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
                     lr_scheduler.step()
+                    ema_model.step(model.parameters())
                     optimizer.zero_grad()
+
 
                 progress_bar.update(1)
                 logs = {
@@ -133,7 +135,6 @@ class DiTTrainer:
                 accelerator.log(logs, step=global_step)
                 global_step += 1
 
-            ema_model.step(model.parameters())
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
@@ -146,7 +147,9 @@ class DiTTrainer:
                 ):
                     # Create pipeline with memory optimizations with autocast
                     with torch.amp.autocast(device_type="cuda", enabled=True):
+                        ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
+                        model.eval()
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
@@ -173,6 +176,7 @@ class DiTTrainer:
                             )
 
                     # Explicit cleanup
+                    ema_model.restore(model.parameters())
                     del pipeline
                     torch.cuda.empty_cache()
 
