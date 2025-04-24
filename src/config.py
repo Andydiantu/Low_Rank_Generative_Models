@@ -14,7 +14,7 @@ class TrainingConfig:
     gradient_accumulation_steps = 2
     learning_rate = 1e-4
     lr_warmup_steps = 500
-    save_image_epochs = 10  # for testing
+    save_image_epochs = 1  # for testing
     save_model_epochs = 50
     eval_dataset_size = 1000
     # mixed_precision = (

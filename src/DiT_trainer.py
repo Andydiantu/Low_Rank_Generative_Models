@@ -6,6 +6,7 @@ from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from diffusers import DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
+from diffusers.training_utils import EMAModel
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
@@ -33,6 +34,10 @@ class DiTTrainer:
             num_warmup_steps=self.config.lr_warmup_steps,
             num_training_steps=(len(self.train_dataloader) * self.config.num_epochs),
         )
+        self.ema_model = EMAModel(
+            parameters=self.model.parameters(),
+            decay=0.9999,
+        )
 
         if config.vae:
             self.vae = SD_VAE()
@@ -54,13 +59,17 @@ class DiTTrainer:
             os.makedirs(self.config.output_dir, exist_ok=True)
             accelerator.init_trackers("train_example")
 
-        model, optimizer, train_dataloader, lr_scheduler, vae = accelerator.prepare(
+        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model = accelerator.prepare(
             self.model,
             self.optimizer,
             self.train_dataloader,
             self.lr_scheduler,
             self.vae,
-        )
+            self.ema_model,
+        )  
+
+        # Manually move ema_model to the correct device
+        ema_model.to(accelerator.device) 
 
         global_step = 0
 
@@ -124,6 +133,8 @@ class DiTTrainer:
                 accelerator.log(logs, step=global_step)
                 global_step += 1
 
+            ema_model.step(model.parameters())
+
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
                 # TODO: Seems very memory intensive here, could i reduce it?
@@ -135,6 +146,7 @@ class DiTTrainer:
                 ):
                     # Create pipeline with memory optimizations with autocast
                     with torch.amp.autocast(device_type="cuda", enabled=True):
+                        ema_model.copy_to(model.parameters())
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
@@ -173,8 +185,8 @@ class DiTTrainer:
         return grid
 
     def evaluate(self, config, epoch, pipeline):
+
         # Sample some images from random noise (this is the backward diffusion process).
-        # The default pipeline output type is `List[PIL.Image]`
         images = pipeline(
             class_labels=torch.zeros(config.eval_batch_size, dtype=torch.long),
             generator=torch.manual_seed(config.seed),
