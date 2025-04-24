@@ -6,9 +6,10 @@ def create_model(config):
         sample_size=config.image_size,
         in_channels=config.latent_channels if config.vae else config.pixel_channels,
         out_channels=config.latent_channels if config.vae else config.pixel_channels,
-        num_layers=8,  
-        num_attention_heads=8,
-        attention_head_dim=32,
+        num_layers=12,  
+        num_attention_heads=6,
+        attention_head_dim=384,
+        patch_size = 2,
     )
     return model
 
