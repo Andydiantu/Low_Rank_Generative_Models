@@ -105,7 +105,7 @@ class DiTTrainer:
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
                 if "label" in batch:
-                    class_labels = batch["label"]
+                    class_labels = batch["label"].to(latents.device)
                 else:
                     class_labels = torch.zeros(
                         batch_size, dtype=torch.long, device=latents.device
@@ -197,7 +197,7 @@ class DiTTrainer:
 
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
-            class_labels=torch.zeros(config.eval_batch_size, dtype=torch.long),
+            class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
             generator=torch.manual_seed(config.seed),
             num_inference_steps=1000,
         ).images
@@ -225,6 +225,7 @@ def main():
 
     test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
     eval = Eval(test_dataloader, eval_dataset_size=config.eval_dataset_size)
+    trainer.ema_model.copy_to(model.parameters())
     pipeline = DiTPipeline(
         transformer=model,
         scheduler=noise_scheduler,
