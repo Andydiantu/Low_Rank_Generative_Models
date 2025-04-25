@@ -181,6 +181,7 @@ class DiTTrainer:
 
                     # Explicit cleanup
                     ema_model.restore(model.parameters())
+                    model.train()
                     del pipeline
                     torch.cuda.empty_cache()
 
