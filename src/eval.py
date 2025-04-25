@@ -14,7 +14,7 @@ class Eval:
         self.setup_metrics()
 
     def setup_metrics(self):
-        self.fid = FrechetInceptionDistance(feature=64, normalize=True, input_img_size=(3, 32, 32))
+        self.fid = FrechetInceptionDistance(feature=2048, normalize=True, input_img_size=(3, 32, 32))
         
         indices = random.sample(range(len(self.val_dataloader.dataset)), self.eval_dataset_size)
         subset_dataset = Subset(self.val_dataloader.dataset, indices)
@@ -36,6 +36,7 @@ class Eval:
                 num_inference_steps=1000,
                 output_type="numpy"
             ).images
+            images = (images + 1.0) / 2.0
             generated_images = torch.tensor(images)
             generated_images = generated_images.permute(0, 3, 1, 2)
 
