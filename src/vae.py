@@ -60,6 +60,7 @@ class DummyAutoencoderKL(AutoencoderKL):
         super().__init__()
         self.encoder = IdentityVAE()
         self.decoder = IdentityVAE()
+        self.config.scaling_factor = 1.0
 
     def encode(self, x):
         return type(

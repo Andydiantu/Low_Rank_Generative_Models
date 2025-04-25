@@ -37,6 +37,8 @@ class DiTTrainer:
         self.ema_model = EMAModel(
             parameters=self.model.parameters(),
             decay=0.9999,
+            use_ema_warmup=True,
+            power = 0.75, 
         )
 
         if config.vae:
@@ -207,6 +209,7 @@ class DiTTrainer:
 
 
 def main():
+
     config = TrainingConfig()
 
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)

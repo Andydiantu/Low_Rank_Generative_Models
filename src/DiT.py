@@ -9,7 +9,7 @@ def create_model(config):
         num_layers=12,  
         num_attention_heads=6,
         attention_head_dim=64,
-        patch_size = 2,
+        patch_size = 4,
     )
     return model
 
@@ -19,7 +19,7 @@ def create_noise_scheduler(config):
     noise_scheduler = DDPMScheduler(
         num_train_timesteps=1000, 
         beta_schedule="scaled_linear", 
-        clip_sample=False,
+        clip_sample=True,
         prediction_type="epsilon",
     )
     return noise_scheduler
