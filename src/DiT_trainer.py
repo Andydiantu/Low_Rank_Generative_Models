@@ -115,9 +115,16 @@ class DiTTrainer:
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
                 with accelerator.accumulate(model):
+                    # For classifier-free guidance training, randomly drop class labels
+                    if self.config.cfg_enabled and torch.rand(1).item() < self.config.unconditional_probability:
+                        # Set to None or use a special null token
+                        class_labels_input = None
+                    else:
+                        class_labels_input = class_labels
+                    
                     # Predict the noise residual
                     noise_pred = model(
-                        noisy_images, timesteps, class_labels, return_dict=False
+                        noisy_images, timesteps, class_labels_input, return_dict=False
                     )[0]
                     loss = F.mse_loss(noise_pred, noise)
                     accelerator.backward(loss)
@@ -196,11 +203,21 @@ class DiTTrainer:
     def evaluate(self, config, epoch, pipeline):
 
         # Sample some images from random noise (this is the backward diffusion process).
-        images = pipeline(
-            class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
-            generator=torch.manual_seed(config.seed),
-            num_inference_steps=1000,
-        ).images
+        if config.cfg_enabled:
+            # Use classifier-free guidance for sampling
+            images = pipeline(
+                class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
+                generator=torch.manual_seed(config.seed),
+                num_inference_steps=1000,
+                guidance_scale=config.guidance_scale,
+            ).images
+        else:
+            # Regular conditional sampling without CFG
+            images = pipeline(
+                class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
+                generator=torch.manual_seed(config.seed),
+                num_inference_steps=1000,
+            ).images
 
         image_grid = self.make_grid(images, rows=4, cols=4)
 
@@ -232,7 +249,13 @@ def main():
         vae=trainer.vae.vae if config.vae else trainer.vae,
     )
     pipeline.enable_attention_slicing()
-    fid_score = eval.compute_metrics(pipeline)
+    
+    # Add CFG parameters to the evaluation
+    if config.cfg_enabled:
+        fid_score = eval.compute_metrics(pipeline, guidance_scale=config.guidance_scale)
+    else:
+        fid_score = eval.compute_metrics(pipeline)
+    
     print(f"FID Score: {fid_score}")
 
 

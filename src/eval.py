@@ -27,19 +27,28 @@ class Eval:
             real_images = (real_images + 1.0) / 2.0
             self.fid.update(real_images, real=True)
 
-    def compute_metrics(self, pipeline):
+    def compute_metrics(self, pipeline, guidance_scale=None):
 
         batch_num = self.eval_dataset_size // 64
         for i in range(batch_num):
-            images = pipeline(
-                class_labels=torch.zeros(64, dtype=torch.long),
-                num_inference_steps=1000,
-                output_type="numpy"
-            ).images
+            # If guidance_scale is provided, use classifier-free guidance
+            if guidance_scale is not None:
+                images = pipeline(
+                    class_labels=torch.zeros(64, dtype=torch.long),
+                    num_inference_steps=1000,
+                    output_type="numpy",
+                    guidance_scale=guidance_scale
+                ).images
+            else:
+                images = pipeline(
+                    class_labels=torch.zeros(64, dtype=torch.long),
+                    num_inference_steps=1000,
+                    output_type="numpy"
+                ).images
             images = (images + 1.0) / 2.0
             generated_images = torch.tensor(images)
             generated_images = generated_images.permute(0, 3, 1, 2)
 
         self.fid.update(generated_images, real=False)
         fid_score = self.fid.compute()
-        return {"fid": fid_score.item()}
+        return fid_score

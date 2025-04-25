@@ -30,3 +30,8 @@ class TrainingConfig:
     hub_private_repo = False
     overwrite_output_dir = True
     seed = 0
+    
+    # Classifier-Free Guidance parameters
+    cfg_enabled = True
+    guidance_scale = 7.5  # Standard value used in many diffusion models
+    unconditional_probability = 0.1  # Probability of using null/unconditional embedding during training

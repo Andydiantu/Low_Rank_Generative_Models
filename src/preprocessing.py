@@ -23,7 +23,8 @@ def preprocess_dataset(dataset, config):
 
     dataset.set_transform(
         lambda examples: {
-            "img": [preprocess(image.convert("RGB")) for image in examples["img"]]
+            "img": [preprocess(image.convert("RGB")) for image in examples["img"]],
+            "label": examples["label"]
         }
     )
 
