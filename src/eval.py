@@ -8,9 +8,11 @@ from torch.utils.data import DataLoader, Subset
 
 
 class Eval: 
-    def __init__(self, val_dataloader, eval_dataset_size = 10000):
+    def __init__(self, val_dataloader, eval_dataset_size = 10000, eval_batch_size = 64, num_inference_steps = 1000):
         self.val_dataloader = val_dataloader
         self.eval_dataset_size = eval_dataset_size
+        self.eval_batch_size = eval_batch_size
+        self.num_inference_steps = num_inference_steps
         self.setup_metrics()
 
     def setup_metrics(self):
@@ -27,13 +29,13 @@ class Eval:
             real_images = (real_images + 1.0) / 2.0
             self.fid.update(real_images, real=True)
 
-    def compute_metrics(self, pipeline):
+    def compute_metrics(self, pipeline,):
 
-        batch_num = self.eval_dataset_size // 64
+        batch_num = self.eval_dataset_size // self.eval_batch_size
         for i in range(batch_num):
             images = pipeline(
-                class_labels=torch.zeros(64, dtype=torch.long),
-                num_inference_steps=1000,
+                class_labels = torch.randint(0, 10, (self.eval_batch_size,), dtype=torch.long),
+                num_inference_steps=self.num_inference_steps,
                 output_type="numpy"
             ).images
             images = (images + 1.0) / 2.0

@@ -14,7 +14,7 @@ def preprocess_dataset(dataset, config):
     # TODO: Add other transformations
     preprocess = transforms.Compose(
         [
-            transforms.Resize((config.image_size, config.image_size)),
+            transforms.RandomResizedCrop(config.image_size, scale=(0.8, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)

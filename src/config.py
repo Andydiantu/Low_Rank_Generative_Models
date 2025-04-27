@@ -17,6 +17,7 @@ class TrainingConfig:
     save_image_epochs = 10  # for testing
     save_model_epochs = 50
     eval_dataset_size = 1000
+    num_inference_steps = 1000
     # mixed_precision = (
     #     "fp16"
     # )

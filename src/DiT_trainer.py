@@ -199,7 +199,7 @@ class DiTTrainer:
         images = pipeline(
             class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
             generator=torch.manual_seed(config.seed),
-            num_inference_steps=1000,
+            num_inference_steps=config.num_inference_steps,
         ).images
 
         image_grid = self.make_grid(images, rows=4, cols=4)
@@ -224,7 +224,7 @@ def main():
     trainer.train_loop()
 
     test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
-    eval = Eval(test_dataloader, eval_dataset_size=config.eval_dataset_size)
+    eval = Eval(test_dataloader, config.eval_dataset_size, config.eval_batch_size, config.num_inference_steps)
     trainer.ema_model.copy_to(model.parameters())
     pipeline = DiTPipeline(
         transformer=model,
