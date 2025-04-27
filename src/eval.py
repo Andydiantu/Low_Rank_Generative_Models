@@ -39,7 +39,7 @@ class Eval:
             images = (images + 1.0) / 2.0
             generated_images = torch.tensor(images)
             generated_images = generated_images.permute(0, 3, 1, 2)
-
-        self.fid.update(generated_images, real=False)
+            self.fid.update(generated_images, real=False)
+            
         fid_score = self.fid.compute()
         return {"fid": fid_score.item()}
