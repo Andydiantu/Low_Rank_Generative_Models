@@ -14,10 +14,13 @@ class TrainingConfig:
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
     lr_warmup_steps = 500
-    save_image_epochs = 10  # for testing
+    save_image_epochs = 10 
     save_model_epochs = 50
     eval_dataset_size = 1000
-    num_inference_steps = 1000
+    num_inference_steps = 500
+    cfg_enabled = True
+    unconditional_prob = 0.1
+    guidance_scale = 7.5
     # mixed_precision = (
     #     "fp16"
     # )

@@ -107,17 +107,29 @@ class DiTTrainer:
                 if "label" in batch:
                     class_labels = batch["label"].to(latents.device)
                 else:
-                    class_labels = torch.zeros(
-                        batch_size, dtype=torch.long, device=latents.device
-                    )
+                    class_labels = torch.zeros(batch_size, dtype=torch.long, device=latents.device)
 
+                # ---- Classifier-Free Guidance: random label drop ----
+                if self.config.cfg_enabled:
+                    # boolean mask: True → keep label, False → drop
+                    keep_mask = torch.rand(batch_size, device=latents.device) > self.config.unconditional_prob
+                    # clone so we don't modify the original
+                    class_labels_input = class_labels.clone()
+                    class_labels_input = torch.where(
+                        keep_mask,
+                        class_labels_input,
+                        torch.full_like(class_labels_input, fill_value=1000)   # 1000 triggers "no label", surprise!
+                    )
+                else:
+                    class_labels_input = class_labels
+                    
                 # Add noise to the clean images according to the noise magnitude at each timestep
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
                 with accelerator.accumulate(model):
                     # Predict the noise residual
                     noise_pred = model(
-                        noisy_images, timesteps, class_labels, return_dict=False
+                        noisy_images, timesteps, class_labels_input, return_dict=False
                     )[0]
                     loss = F.mse_loss(noise_pred, noise)
                     accelerator.backward(loss)
@@ -200,6 +212,7 @@ class DiTTrainer:
             class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
             generator=torch.manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
+            guidance_scale=config.guidance_scale if config.cfg_enabled else None,
         ).images
 
         image_grid = self.make_grid(images, rows=4, cols=4)
@@ -224,7 +237,7 @@ def main():
     trainer.train_loop()
 
     test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
-    eval = Eval(test_dataloader, config.eval_dataset_size, config.eval_batch_size, config.num_inference_steps)
+    eval = Eval(test_dataloader, config)
     trainer.ema_model.copy_to(model.parameters())
     pipeline = DiTPipeline(
         transformer=model,
