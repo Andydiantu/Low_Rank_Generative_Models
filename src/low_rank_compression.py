@@ -51,13 +51,11 @@ class LowRankLinear(nn.Module):
         else: 
             self.rank = rank
 
-        self.Uk = U[:, : self.rank]
-        self.Sk = S[: self.rank]
-        self.Vhk = Vh[: self.rank, :]
+        self.Uk = nn.Parameter(U[:, : self.rank])
+        self.Sk = nn.Parameter(S[: self.rank])
+        self.Vhk = nn.Parameter(Vh[: self.rank, :])
 
         self.bias = base_linear.bias if base_linear.bias is not None else 0
-
-
             
 
 
@@ -90,11 +88,22 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
         else:
             apply_low_rank_compression(child, rank=rank, threshold=threshold)
 
+def low_rank_layer_replacement(module, rank):
 
-# Maintain backward compatibility with existing code
-def apply_structural_low_rank(module, rank=64):
-    apply_low_rank_compression(module, rank=rank)
+    # Replace all Linear layers with LowRankLinear
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            new_layer = LowRankLinear(
+                module.in_features, 
+                module.out_features, 
+                rank=rank,
+                initialise = True
+            )
 
-
-def apply_structural_low_rank_adaptive(module, threshold=0.99):
-    apply_low_rank_compression(module, threshold=threshold)
+            #TODO: check do this or setattr(module, name, low_rank_layer)
+            # Set parent module's attribute to the new layer
+            parent_name, child_name = name.rsplit('.', 1)
+            parent_module = dict(model.named_modules())[parent_name]
+            setattr(parent_module, child_name, new_layer)
+    
+    return model

@@ -8,7 +8,7 @@ class TrainingConfig:
     image_size = 32      
     train_batch_size = 128
     eval_batch_size = 16
-    num_epochs = 1
+    num_epochs = 200
     latent_channels = 4
     pixel_channels = 3
     gradient_accumulation_steps = 1
@@ -16,7 +16,7 @@ class TrainingConfig:
     lr_warmup_steps = 500
     save_image_epochs = 10 
     save_model_epochs = 50
-    eval_dataset_size = 1
+    eval_dataset_size = 1000
     num_inference_steps = 500
     cfg_enabled = True
     unconditional_prob = 0.1
