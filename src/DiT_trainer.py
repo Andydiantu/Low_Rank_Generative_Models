@@ -261,7 +261,7 @@ def main():
         print(f"number of parameters in model after compression is: {count_parameters(model)}")
         config.num_epochs = 5 # finetune for 5 epoch
         finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
-        finetune_trainer.train_loop
+        finetune_trainer.train_loop()
 
         compressed_pipeline = DiTPipeline(
             transformer=model,
