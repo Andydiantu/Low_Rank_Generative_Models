@@ -21,6 +21,7 @@ class TrainingConfig:
     cfg_enabled = True
     unconditional_prob = 0.1
     guidance_scale = 7.5
+    low_rank_compression = True
     # mixed_precision = (
     #     "fp16"
     # )

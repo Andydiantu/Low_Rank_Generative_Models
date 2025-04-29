@@ -16,6 +16,7 @@ from DiT import create_model, create_noise_scheduler
 from eval import Eval
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
+from low_rank_compression import apply_structural_low_rank_adaptive, apply_structural_low_rank
 
 
 class DiTTrainer:
@@ -247,6 +248,28 @@ def main():
     pipeline.enable_attention_slicing()
     fid_score = eval.compute_metrics(pipeline)
     print(f"FID Score: {fid_score}")
+    del pipeline
+
+    if config.low_rank_compression:
+        apply_structural_low_rank_adaptive(model, threshold=0.6)
+        config.num_epochs = 5 # finetune for 5 epoch
+        finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
+        finetune_trainer.train_loop
+
+        compressed_pipeline = DiTPipeline(
+            transformer=model,
+            scheduler=noise_scheduler,
+            vae=trainer.vae.vae if config.vae else trainer.vae,
+        )
+
+        compressed_pipeline.enable_attention_slicing()
+        fid_score = eval.compute_metrics(compressed_pipeline)
+        print(f"FID Score: {fid_score}")
+
+
+
+        
+
 
 
 if __name__ == "__main__":
