@@ -251,7 +251,14 @@ def main():
     del pipeline
 
     if config.low_rank_compression:
+
+        def count_parameters(model):
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+        
+        print(f"number of parameters in model: {count_parameters(model)}")
         apply_structural_low_rank_adaptive(model, threshold=0.6)
+        print(f"number of parameters in model after compression is: {count_parameters(model)}")
         config.num_epochs = 5 # finetune for 5 epoch
         finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
         finetune_trainer.train_loop
