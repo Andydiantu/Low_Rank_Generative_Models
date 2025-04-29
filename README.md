@@ -12,8 +12,8 @@ The `src` folder contains training and architecture code.
 - [x] Add EMA 
 - [x] Add FID and BPD metrics
 - [ ] Add TensorBoard for better logging
-- [ ] Implement post-hoc low-rank compression
-- [ ] Implement low-rank training from scratch
+- [x] Implement post-hoc low-rank compression
+- [x] Implement low-rank training from scratch
 - [ ] Extend to EDM2 structure
 
 # Current Problems to Solve
