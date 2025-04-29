@@ -16,7 +16,7 @@ from DiT import create_model, create_noise_scheduler
 from eval import Eval
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import apply_low_rank_compression
+from low_rank_compression import apply_low_rank_compression, low_rank_layer_replacement
 
 
 class DiTTrainer:
@@ -234,6 +234,10 @@ def main():
 
     print(f"number of parameters in model: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
+    if config.low_rank_pretraining:
+        model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
+        print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+
     trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
     trainer.train_loop()
 
@@ -257,7 +261,7 @@ def main():
 
         
         print(f"number of parameters in model: {count_parameters(model)}")
-        apply_low_rank_compression(model, threshold=0.6)
+        model = apply_low_rank_compression(model, threshold=0.6)
         print(f"number of parameters in model after compression is: {count_parameters(model)}")
         config.num_epochs = 5 # finetune for 5 epoch TODO: parameterise this.
         finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, config)

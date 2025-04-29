@@ -88,22 +88,23 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
         else:
             apply_low_rank_compression(child, rank=rank, threshold=threshold)
 
+    return module
+
 def low_rank_layer_replacement(module, rank):
 
     # Replace all Linear layers with LowRankLinear
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
+    for name, child in module.named_children():
+        if isinstance(child, nn.Linear):
             new_layer = LowRankLinear(
-                module.in_features, 
-                module.out_features, 
+                child.in_features, 
+                child.out_features, 
                 rank=rank,
                 initialise = True
             )
 
-            #TODO: check do this or setattr(module, name, low_rank_layer)
-            # Set parent module's attribute to the new layer
-            parent_name, child_name = name.rsplit('.', 1)
-            parent_module = dict(model.named_modules())[parent_name]
-            setattr(parent_module, child_name, new_layer)
+            setattr(module, name, new_layer)
+
+        else:
+            low_rank_layer_replacement(child, rank)
     
-    return model
+    return module
