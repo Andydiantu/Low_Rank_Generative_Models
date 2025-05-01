@@ -8,15 +8,17 @@ class TrainingConfig:
     image_size = 32      
     train_batch_size = 128
     eval_batch_size = 16
-    num_epochs = 200
+    num_epochs = 1000
     latent_channels = 4
     pixel_channels = 3
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
+    weight_decay = 0.01
     lr_warmup_steps = 2000
     save_image_epochs = 10 
     save_model_epochs = 50
-    eval_dataset_size = 1000
+    evaluate_fid_epochs = 100
+    eval_dataset_size = 10000
     num_inference_steps = 1000
     cfg_enabled = True
     unconditional_prob = 0.1
@@ -24,6 +26,8 @@ class TrainingConfig:
     low_rank_pretraining = False
     low_rank_rank = 64
     low_rank_compression = False
+    load_pretrained_model = False
+    pretrained_model_path = "put a path here"
     # mixed_precision = (
     #     "fp16"
     # )

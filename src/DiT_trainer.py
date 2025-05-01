@@ -28,6 +28,7 @@ class DiTTrainer:
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay,
         )
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -191,6 +192,11 @@ class DiTTrainer:
                                 model.state_dict(),
                                 os.path.join(self.config.output_dir, "model.pt"),
                             )
+                        if (
+                            (epoch + 1) % self.config.evaluate_fid_epochs == 0
+                            or epoch == self.config.num_epochs - 1
+                        ): 
+                            self.evaluate_fid(self.config, epoch, pipeline)
 
                     # Explicit cleanup
                     ema_model.restore(model.parameters())
@@ -222,6 +228,16 @@ class DiTTrainer:
         os.makedirs(test_dir, exist_ok=True)
         image_grid.save(f"{test_dir}/{epoch:04d}.png")
 
+    def evaluate_fid(self, config, epoch, pipeline):
+        test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
+        eval = Eval(test_dataloader, config)
+        self.ema_model.copy_to(self.model.parameters())
+        fid_score = eval.compute_metrics(pipeline)
+        print(f"FID Score: {fid_score}")
+        del pipeline
+
+
+
 
 def main():
 
@@ -232,6 +248,9 @@ def main():
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
 
+    if config.load_pretrained_model:
+        model.load_state_dict(torch.load(config.pretrained_model_path))
+
     print(f"number of parameters in model: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
     if config.low_rank_pretraining:
@@ -241,18 +260,7 @@ def main():
     trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
     trainer.train_loop()
 
-    test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
-    eval = Eval(test_dataloader, config)
-    trainer.ema_model.copy_to(model.parameters())
-    pipeline = DiTPipeline(
-        transformer=model,
-        scheduler=noise_scheduler,
-        vae=trainer.vae.vae if config.vae else trainer.vae,
-    )
-    pipeline.enable_attention_slicing()
-    fid_score = eval.compute_metrics(pipeline)
-    print(f"FID Score: {fid_score}")
-    del pipeline
+    
 
     if config.low_rank_compression:
 

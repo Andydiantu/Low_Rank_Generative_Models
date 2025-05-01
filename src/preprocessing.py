@@ -13,7 +13,7 @@ def preprocess_dataset(dataset, config, split):
     # TODO: Parameterise the proprocessing transformations
     if split == "train":
         tfm = transforms.Compose([
-            transforms.RandomCrop(config.image_size, padding=4),
+            transforms.RandomCrop(config.image_size, padding=2),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.5]*3,[0.5]*3),
@@ -45,6 +45,5 @@ def create_dataloader(dataset_name, split, config):
         pin_memory=True,  
         persistent_workers=True, 
         prefetch_factor=2,  
-
     )
     return dataloader
