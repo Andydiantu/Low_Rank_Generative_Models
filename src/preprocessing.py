@@ -9,21 +9,24 @@ def load_dataset_from_hf(dataset_name, split):
     return dataset
 
 
-def preprocess_dataset(dataset, config):
+def preprocess_dataset(dataset, config, split):
     # TODO: Parameterise the proprocessing transformations
-    # TODO: Add other transformations
-    preprocess = transforms.Compose(
-        [
-            transforms.RandomResizedCrop(config.image_size, scale=(0.8, 1.0)),
+    if split == "train":
+        tfm = transforms.Compose([
+            transforms.RandomCrop(config.image_size, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
-        ]
-    )
+            transforms.Normalize([0.5]*3,[0.5]*3),
+        ])
+    else:
+        tfm = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5]*3,[0.5]*3),
+        ])
 
     dataset.set_transform(
         lambda examples: {
-            "img": [preprocess(image.convert("RGB")) for image in examples["img"]],
+            "img": [tfm(image.convert("RGB")) for image in examples["img"]],
             "label": examples["label"]
         }
     )
@@ -33,7 +36,7 @@ def preprocess_dataset(dataset, config):
 
 def create_dataloader(dataset_name, split, config):
     dataset = load_dataset_from_hf(dataset_name, split=split)
-    dataset = preprocess_dataset(dataset, config)
+    dataset = preprocess_dataset(dataset, config, split)
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.train_batch_size, 

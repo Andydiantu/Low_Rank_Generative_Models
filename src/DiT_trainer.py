@@ -278,10 +278,5 @@ def main():
         print(f"FID Score: {fid_score}")
 
 
-
-        
-
-
-
 if __name__ == "__main__":
     main()

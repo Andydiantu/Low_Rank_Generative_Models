@@ -17,11 +17,11 @@ class TrainingConfig:
     save_image_epochs = 10 
     save_model_epochs = 50
     eval_dataset_size = 1000
-    num_inference_steps = 500
+    num_inference_steps = 1000
     cfg_enabled = True
     unconditional_prob = 0.1
     guidance_scale = 7.5
-    low_rank_pretraining = True
+    low_rank_pretraining = False
     low_rank_rank = 64
     low_rank_compression = False
     # mixed_precision = (
