@@ -26,8 +26,8 @@ class TrainingConfig:
     low_rank_pretraining = False
     low_rank_rank = 64
     low_rank_compression = False
-    load_pretrained_model = False
-    pretrained_model_path = "put a path here"
+    load_pretrained_model = True
+    pretrained_model_path = "logs/DiT20250507_094533/model.pt"
     # mixed_precision = (
     #     "fp16"
     # )

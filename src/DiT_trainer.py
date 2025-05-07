@@ -250,7 +250,10 @@ def main():
     noise_scheduler = create_noise_scheduler(config)
 
     if config.load_pretrained_model:
-        model.load_state_dict(torch.load(config.pretrained_model_path))
+        path = Path(__file__).parent.parent / config.pretrained_model_path
+        print(f"Loading pretrained model from {path}")
+        model.load_state_dict(torch.load(path))
+        print("Loading complete")
 
     print(f"number of parameters in model: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 

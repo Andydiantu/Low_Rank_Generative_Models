@@ -55,6 +55,7 @@ class IdentityVAE(torch.nn.Module):
         return x
 
 
+# A dummy implementation of a identity VAE, as DIT pipeline from diffusers package require a placeholder of VAE.
 class DummyAutoencoderKL(AutoencoderKL):
     def __init__(self):
         super().__init__()
