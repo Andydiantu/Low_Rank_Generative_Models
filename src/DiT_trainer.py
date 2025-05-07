@@ -12,7 +12,7 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 
 from config import TrainingConfig
-from DiT import create_model, create_noise_scheduler
+from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
@@ -243,11 +243,15 @@ class DiTTrainer:
 def main():
 
     config = TrainingConfig()
+    print(config)
 
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
+
+    print_model_settings(model)
+    print_noise_scheduler_settings(noise_scheduler)
 
     if config.load_pretrained_model:
         path = Path(__file__).parent.parent / config.pretrained_model_path
@@ -255,7 +259,6 @@ def main():
         model.load_state_dict(torch.load(path))
         print("Loading complete")
 
-    print(f"number of parameters in model: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
     if config.low_rank_pretraining:
         model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
