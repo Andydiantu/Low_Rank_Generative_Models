@@ -7,7 +7,7 @@ def create_model(config):
         in_channels=config.latent_channels if config.vae else config.pixel_channels,
         out_channels=config.latent_channels if config.vae else config.pixel_channels,
         num_layers=12,  
-        num_attention_heads=6,
+        num_attention_heads=8,
         attention_head_dim=64,
         patch_size = 4,
     )

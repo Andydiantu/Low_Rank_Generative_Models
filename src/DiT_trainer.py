@@ -192,6 +192,7 @@ class DiTTrainer:
                                 model.state_dict(),
                                 os.path.join(self.config.output_dir, "model.pt"),
                             )
+                            
                         if (
                             (epoch + 1) % self.config.evaluate_fid_epochs == 0
                             or epoch == self.config.num_epochs - 1
