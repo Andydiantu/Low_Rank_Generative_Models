@@ -17,7 +17,7 @@ def create_model(config):
 
 def create_noise_scheduler(config):
     noise_scheduler = DDPMScheduler(
-        num_train_timesteps=config.num_inference_steps, 
+        num_train_timesteps=config.num_training_steps, 
         beta_schedule="squaredcos_cap_v2", 
         clip_sample=True,
         prediction_type="epsilon",
