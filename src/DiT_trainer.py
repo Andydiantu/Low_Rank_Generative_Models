@@ -174,8 +174,6 @@ class DiTTrainer:
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
 
-                        pipeline.enable_attention_slicing()
-
                         # Evaluation
                         if (
                             (epoch + 1) % self.config.save_image_epochs == 0
@@ -236,8 +234,6 @@ class DiTTrainer:
         fid_score = eval.compute_metrics(pipeline)
         print(f"FID Score: {fid_score}")
         del pipeline
-
-
 
 
 def main():

@@ -7,29 +7,31 @@ class SD_VAE:
         vae = AutoencoderKL.from_pretrained(
             "stabilityai/sd-vae-ft-ema"
         )
-
         vae = vae.to(device)
         self.vae = vae
+        self.device = device
 
     def __call__(self, x):
-        # assumes 0-1 normalized image
+        # assumes normalized image
         single_image = False
         if len(x.size()) == 3: 
             single_image = True
             x = x.unsqueeze(dim=0)
         
-        if x.min() >= 0: 
-            x = x * 2 - 1 
+        # Images from preprocessing are already normalized to [-1,1]
+        # Don't apply double normalization
 
         with torch.no_grad():
-            encode = self.vae.encode(x.cuda())
-            batch = encode.latent_dist.sample() *  self.vae.config.scaling_factor
+            encode = self.vae.encode(x.to(self.device))
+            batch = encode.latent_dist.sample() * self.vae.config.scaling_factor
         if single_image: 
             batch = batch.squeeze(dim=0)
         return batch
-
-    def encode(self, x): 
-        return self(x)
+    
+    def encode(self, x):
+        # This needs to match the interface expected in DiT_trainer.py
+        with torch.no_grad():
+            return self.vae.encode(x).latent_dist.sample() * self.vae.config.scaling_factor
     
     def decode(self, z): 
         """
