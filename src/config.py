@@ -6,7 +6,7 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 512
+    train_batch_size: int = 256
     eval_batch_size: int = 16
     num_epochs: int = 1000
     latent_channels: int = 4
@@ -31,7 +31,7 @@ class TrainingConfig:
     low_rank_rank: int = 64
     low_rank_compression: bool = False
     load_pretrained_model: bool = False
-    pretrained_model_path: Optional[str] = "logs/DiT20250508_090113/model.pt" # Or Path if you prefer
+    pretrained_model_path: Optional[str] = "logs/DiT20250508_081226/model.pt" # Or Path if you prefer
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = True
     push_to_hub: bool = False

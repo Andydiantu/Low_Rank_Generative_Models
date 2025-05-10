@@ -5,6 +5,7 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from diffusers import DiTPipeline
+from diffusers import AutoencoderKL
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from diffusers.training_utils import EMAModel
 from PIL import Image
@@ -44,9 +45,12 @@ class DiTTrainer:
         )
 
         if config.vae:
-            self.vae = SD_VAE()
+            self.vae = AutoencoderKL.from_pretrained(
+            "stabilityai/sd-vae-ft-ema"
+        )
         else:
             self.vae = DummyAutoencoderKL()
+        self.vae.eval()
 
     def train_loop(self):
         logging_dir = os.path.join(self.config.output_dir, "logs")
@@ -89,7 +93,8 @@ class DiTTrainer:
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
                 if self.config.vae:
-                    latents = self.vae.encode(clean_images)
+                    with torch.no_grad():
+                        latents = self.vae.encode(clean_images).latent_dist.sample() * self.vae.config.scaling_factor
                 else:
                     latents = clean_images
                 # Sample noise to add to the images
@@ -171,7 +176,8 @@ class DiTTrainer:
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
-                            vae=self.vae.vae if self.config.vae else self.vae,
+                            # vae=self.vae.vae if self.config.vae else self.vae,
+                            vae = self.vae
                         )
 
                         # Evaluation
@@ -281,7 +287,8 @@ def main():
         compressed_pipeline = DiTPipeline(
             transformer=model,
             scheduler=noise_scheduler,
-            vae=trainer.vae.vae if config.vae else trainer.vae,
+            # vae=trainer.vae.vae if config.vae else trainer.vae,
+            vae = trainer.vae
         )
 
         compressed_pipeline.enable_attention_slicing()

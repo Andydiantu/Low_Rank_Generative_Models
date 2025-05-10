@@ -9,7 +9,7 @@ def create_model(config):
         num_layers=12,  
         num_attention_heads=6,
         attention_head_dim=64,
-        patch_size = 4,
+        patch_size = 1,
     )
     return model
 

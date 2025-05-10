@@ -19,6 +19,6 @@ The `src` folder contains training and architecture code.
 - [ ] Extend to EDM2 structure
 
 # Current Problems to Solve
-- [ ] The base model cannot achieve good FID performance. (Now around 80 FID, aim for FID below 20)
+- [ ] The base model cannot achieve good FID performance. (Now around 20 FID, aim for FID below 5)
 - [ ] The sampling stage creates a VRAM bottleneck, leading to out-of-memory errors.
 - [ ] The introduction of a VAE into the pipeline causes the loss to become extremely high and unstable.
