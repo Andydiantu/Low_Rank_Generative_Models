@@ -15,7 +15,7 @@ def preprocess_dataset(dataset, config, split):
         tfm = transforms.Compose([
             # transforms.RandomCrop(config.image_size, padding=2),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomResizedCrop(size=32, scale=(0.95, 1.0), ratio=(0.95, 1.05), antialias=True),
+            # transforms.RandomResizedCrop(size=32, scale=(0.95, 1.0), ratio=(0.95, 1.05), antialias=True),
             transforms.ToTensor(),
             transforms.Normalize([0.5]*3,[0.5]*3),
         ])

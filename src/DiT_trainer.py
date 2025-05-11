@@ -133,7 +133,16 @@ class DiTTrainer:
                     noise_pred = model(
                         noisy_images, timesteps, class_labels_input, return_dict=False
                     )[0]
-                    loss = F.mse_loss(noise_pred, noise)
+                    
+                    alphas = self.noise_scheduler.alphas_cumprod[timesteps]
+                    alphas = alphas.view(-1, 1, 1, 1)
+                    snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
+                    snr_weight = snr / (snr + 1)  
+                    
+                    loss = F.mse_loss(noise_pred, noise, reduction="none")
+                    loss = loss * snr_weight
+                    loss = loss.mean()
+
                     accelerator.backward(loss)
 
                     accelerator.clip_grad_norm_(model.parameters(), 1.0)

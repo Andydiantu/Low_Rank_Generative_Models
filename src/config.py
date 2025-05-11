@@ -6,21 +6,21 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 256
+    train_batch_size: int = 128
     eval_batch_size: int = 64
-    num_epochs: int = 1
+    num_epochs: int = 2000
     latent_channels: int = 4
     pixel_channels: int = 3
     gradient_accumulation_steps: int = 1
-    learning_rate: float = 1e-4
-    weight_decay: float = 0
+    learning_rate: float = 2e-4
+    weight_decay: float = 1e-2
     lr_warmup_steps: int = 2000
-    # save_image_epochs: int = 50
-    # save_model_epochs: int = 25
-    # evaluate_fid_epochs: int = 200
-    save_image_epochs: int = 1 # for testing
-    save_model_epochs: int = 1 # for testing
-    evaluate_fid_epochs: int = 1 # for testing
+    save_image_epochs: int = 50
+    save_model_epochs: int = 25
+    evaluate_fid_epochs: int = 400
+    # save_image_epochs: int = 1 # for testing
+    # save_model_epochs: int = 1 # for testing
+    # evaluate_fid_epochs: int = 1 # for testing
     eval_dataset_size: int = 100
     num_training_steps: int = 1000
     num_inference_steps: int = 1000
@@ -30,8 +30,8 @@ class TrainingConfig:
     low_rank_pretraining: bool = False
     low_rank_rank: int = 64
     low_rank_compression: bool = False
-    load_pretrained_model: bool = True
-    pretrained_model_path: Optional[str] = "logs/DiT20250508_061858/model.pt" # Or Path if you prefer
+    load_pretrained_model: bool = False
+    pretrained_model_path: Optional[str] = "logs/DiT20250510_045721/model.pt" # Or Path if you prefer
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = False
     push_to_hub: bool = False

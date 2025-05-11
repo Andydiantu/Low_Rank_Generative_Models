@@ -7,9 +7,9 @@ def create_model(config):
         in_channels=config.latent_channels if config.vae else config.pixel_channels,
         out_channels=config.latent_channels if config.vae else config.pixel_channels,
         num_layers=12,  
-        num_attention_heads=8,
+        num_attention_heads=6,
         attention_head_dim=64,
-        patch_size = 4,
+        patch_size = 2,
     )
     return model
 
@@ -20,7 +20,7 @@ def create_noise_scheduler(config):
         num_train_timesteps=config.num_training_steps, 
         beta_schedule="squaredcos_cap_v2", 
         clip_sample=True,
-        prediction_type="epsilon",
+        prediction_type="v_prediction",
     )
     return noise_scheduler
 
