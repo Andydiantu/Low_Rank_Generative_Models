@@ -134,10 +134,10 @@ class DiTTrainer:
                         noisy_images, timesteps, class_labels_input, return_dict=False
                     )[0]
                     
-                    alphas = self.noise_scheduler.alphas_cumprod[timesteps]
+                    alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
                     alphas = alphas.view(-1, 1, 1, 1)
                     snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
-                    snr_weight = snr / (snr + 1)  
+                    snr_weight = (snr / (snr + 1)).detach() 
                     
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
                     loss = loss * snr_weight
