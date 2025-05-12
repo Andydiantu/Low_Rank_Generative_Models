@@ -77,7 +77,7 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
     
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
-            low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank = 1, initialise = False)
+            low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank = rank, initialise = False)
 
             if rank is not None:
                 low_rank_layer.svd_decomposition(child, rank=rank)
@@ -108,3 +108,24 @@ def low_rank_layer_replacement(module, rank):
             low_rank_layer_replacement(child, rank)
     
     return module
+
+
+def label_low_rank_gradient_layers(model):
+
+    # label layers for galore optimizer
+
+    galore_params = []
+    for module_name, module in model.named_modules():
+        if not isinstance(module, nn.Linear):
+            continue
+
+        # TODO: Possible layer selection here
+
+        print('enable GaLore for weights in module: ', module_name)
+        galore_params.append(module.weight)
+
+    id_galore_params = [id(p) for p in galore_params]
+    # make parameters without "rank" to another group
+    regular_params = [p for p in model.parameters() if id(p) not in id_galore_params]
+
+    return galore_params, regular_params

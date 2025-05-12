@@ -10,13 +10,14 @@ from diffusers.training_utils import EMAModel
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
+from galore_torch import GaLoreAdamW
 
 from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import apply_low_rank_compression, low_rank_layer_replacement
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement
 
 
 class DiTTrainer:
@@ -25,11 +26,18 @@ class DiTTrainer:
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
         self.config = config
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay,
-        )
+
+        if not config.low_rank_gradient:
+            self.optimizer = torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.config.learning_rate,
+                weight_decay=self.config.weight_decay,
+            )
+        else:
+            galore_params, regular_params = label_low_rank_gradient_layers(self.model)
+            param_groups = [{'params': regular_params}, 
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 1, 'proj_type': 'std'}]
+            self.optimizer = GaLoreAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer=self.optimizer,
