@@ -173,8 +173,6 @@ class DiTTrainer:
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
-                # TODO: Seems very memory intensive here, could i reduce it?
-
                 if (
                     (epoch + 1) % self.config.save_image_epochs == 0
                     or (epoch + 1) % self.config.save_model_epochs == 0
@@ -182,9 +180,14 @@ class DiTTrainer:
                 ):
                     # Create pipeline with memory optimizations with autocast
                     with torch.amp.autocast(device_type="cuda", enabled=True):
+                        # Store original model parameters before applying EMA weights
+                        original_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                        
+                        # Copy EMA parameters to model for evaluation
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
                         model.eval()
+                        
                         pipeline = DiTPipeline(
                             transformer=accelerator.unwrap_model(model),
                             scheduler=self.noise_scheduler,
@@ -201,25 +204,33 @@ class DiTTrainer:
                             self.evaluate(self.config, epoch, pipeline)
 
                         if (
+                            (epoch + 1) % self.config.evaluate_fid_epochs == 0
+                            or epoch == self.config.num_epochs - 1
+                        ): 
+                            self.evaluate_fid(self.config, pipeline)
+
+                        if (
                             (epoch + 1) % self.config.save_model_epochs == 0
                             or epoch == self.config.num_epochs - 1
                         ):
                             pipeline.save_pretrained(self.config.output_dir)
+                            # Save EMA model (which is currently in the model)
                             torch.save(
                                 model.state_dict(),
-                                os.path.join(self.config.output_dir, f"model_{epoch:04d}.pt"),
+                                os.path.join(self.config.output_dir, f"EMA_model_{epoch:04d}.pt"),
                             )
                             
-                        if (
-                            (epoch + 1) % self.config.evaluate_fid_epochs == 0
-                            or epoch == self.config.num_epochs - 1
-                        ): 
-                            self.evaluate_fid(self.config, epoch, pipeline)
+                            # Save original model from our saved state
+                            torch.save(
+                                original_model_state,
+                                os.path.join(self.config.output_dir, f"model_{epoch:04d}.pt"),
+                            )
 
-                    # Explicit cleanup
-                    ema_model.restore(model.parameters())
+                    # Restore original model parameters and set back to training mode
+                    model.load_state_dict(original_model_state)
                     model.train()
                     del pipeline
+                    del original_model_state  # Clean up the temporary state dict
                     torch.cuda.empty_cache()
 
     # Code to visualise the current epoch generated images
@@ -246,7 +257,7 @@ class DiTTrainer:
         os.makedirs(test_dir, exist_ok=True)
         image_grid.save(f"{test_dir}/{epoch:04d}.png")
 
-    def evaluate_fid(self, config, epoch, pipeline):
+    def evaluate_fid(self, config, pipeline):
         test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
         eval = Eval(test_dataloader, config)
         self.ema_model.copy_to(self.model.parameters())
