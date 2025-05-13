@@ -207,7 +207,7 @@ class DiTTrainer:
                             pipeline.save_pretrained(self.config.output_dir)
                             torch.save(
                                 model.state_dict(),
-                                os.path.join(self.config.output_dir, "model.pt"),
+                                os.path.join(self.config.output_dir, f"model_{epoch:04d}.pt"),
                             )
                             
                         if (
