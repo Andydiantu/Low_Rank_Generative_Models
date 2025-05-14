@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import torch
+import torch.profiler
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from diffusers import DiTPipeline
@@ -88,7 +89,7 @@ class DiTTrainer:
         for epoch in range(self.config.num_epochs):
             progress_bar = tqdm(
                 total=len(self.train_dataloader),
-                disable=not accelerator.is_local_main_process,
+                disable= "SLURM_JOB_ID" in os.environ, 
                 dynamic_ncols=True,
                 leave=False  
             )
@@ -137,15 +138,26 @@ class DiTTrainer:
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
                 with accelerator.accumulate(model):
-                    # Predict the noise residual
+                    # with torch.profiler.profile(
+                    #     activities=[torch.profiler.ProfilerActivity.CPU,
+                    #                 torch.profiler.ProfilerActivity.CUDA],
+                    #     profile_memory=True,
+                    #     record_shapes=True
+                    # ) as prof:
+
+                    #     # Predict the noise residual
                     noise_pred = model(
                         noisy_images, timesteps, class_labels_input, return_dict=False
                     )[0]
+                    # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+                        
+
                     
                     alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
                     alphas = alphas.view(-1, 1, 1, 1)
-                    snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
+                    snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
                     snr_weight = (snr / (snr + 1)).detach() 
+             
                     
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
                     loss = loss * snr_weight
@@ -166,9 +178,17 @@ class DiTTrainer:
                     "lr": lr_scheduler.get_last_lr()[0],
                     "step": global_step,
                 }
+                
                 progress_bar.set_postfix(**logs)
                 accelerator.log(logs, step=global_step)
                 global_step += 1
+
+            # Print the loss, lr, and step to the log file if running on a SLURM job
+            if "SLURM_JOB_ID" in os.environ:
+                print(f"Epoch {epoch} completed")
+                print(f"loss: {loss.detach().item()}")
+                print(f"lr: {lr_scheduler.get_last_lr()[0]}")
+                print(f"step: {global_step}")
 
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
