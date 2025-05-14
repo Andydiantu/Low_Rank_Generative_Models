@@ -1,4 +1,4 @@
-from diffusers import DDPMScheduler, DiTTransformer2DModel
+from diffusers import DDPMScheduler, DDIMScheduler, DiTTransformer2DModel
 
 # TODO: Parameterise the model config
 def create_model(config):
@@ -16,12 +16,21 @@ def create_model(config):
 
 
 def create_noise_scheduler(config):
-    noise_scheduler = DDPMScheduler(
-        num_train_timesteps=config.num_training_steps, 
-        beta_schedule="squaredcos_cap_v2", 
-        clip_sample=True,
-        prediction_type="epsilon",
-    )
+    if config.noise_scheduler == "DDPM":
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=config.num_training_steps, 
+            beta_schedule="squaredcos_cap_v2", 
+            clip_sample=True,
+            prediction_type="epsilon",
+        )
+    elif config.noise_scheduler == "DDIM":
+        noise_scheduler = DDIMScheduler(
+            num_train_timesteps=config.num_training_steps, 
+            beta_schedule="squaredcos_cap_v2", 
+            clip_sample=True,
+            prediction_type="epsilon",
+        )
+
     return noise_scheduler
 
 
