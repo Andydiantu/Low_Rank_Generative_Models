@@ -32,11 +32,18 @@ class Eval:
             self.fid.update(real_images, real=True)
 
     def compute_metrics(self, pipeline,):
+        # TODO: Make this conditional and parameterise the number of classes
+        total = self.eval_dataset_size
+        per_class = total // 10
+        labels = torch.arange(10).repeat(per_class)  
+        labels = labels[torch.randperm(total)]
+
 
         batch_num = self.eval_dataset_size // self.eval_batch_size
         for i in range(batch_num):
+            batch_labels = labels[i*self.eval_batch_size:(i+1)*self.eval_batch_size]
             images = pipeline(
-                class_labels = torch.randint(0, 10, (self.eval_batch_size,), dtype=torch.long),
+                class_labels = batch_labels,
                 num_inference_steps=self.num_inference_steps,
                 output_type="numpy",
                 guidance_scale=self.guidance_scale if self.cfg_enabled else None,
