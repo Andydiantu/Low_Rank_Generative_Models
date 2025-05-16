@@ -185,11 +185,7 @@ class DiTTrainer:
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed")
-                print(f"loss: {loss.detach().item()}")
-                print(f"lr: {lr_scheduler.get_last_lr()[0]}")
-                print(f"step: {global_step}")
-
+                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step} \n")                
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
