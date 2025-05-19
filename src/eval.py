@@ -28,7 +28,7 @@ class Eval:
         for batch in tqdm(self.eval_dataloader, desc="Computing real features"):
             real_images = batch["img"]
             # Convert from [-1, 1] to [0, 1] range for FID calculation
-            # real_images = (real_images + 1.0) / 2.0
+            real_images = (real_images + 1.0) / 2.0
             self.fid.update(real_images, real=True)
 
     def compute_metrics(self, pipeline,):

@@ -22,7 +22,7 @@ def preprocess_dataset(dataset, config, split):
     else:
         tfm = transforms.Compose([
             transforms.ToTensor(),
-            # transforms.Normalize([0.5]*3,[0.5]*3),
+            transforms.Normalize([0.5]*3,[0.5]*3),
         ])
 
     dataset.set_transform(
