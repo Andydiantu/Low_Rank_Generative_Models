@@ -9,9 +9,9 @@ def load_dataset_from_hf(dataset_name, split):
     return dataset
 
 
-def preprocess_dataset(dataset, config, split):
+def preprocess_dataset(dataset, config, split, eval=False):
     # TODO: Parameterise the proprocessing transformations
-    if split == "train":
+    if not eval:
         tfm = transforms.Compose([
             # transforms.RandomCrop(config.image_size, padding=2),
             transforms.RandomHorizontalFlip(),
@@ -35,9 +35,9 @@ def preprocess_dataset(dataset, config, split):
     return dataset
 
 
-def create_dataloader(dataset_name, split, config):
+def create_dataloader(dataset_name, split, config, eval=False):
     dataset = load_dataset_from_hf(dataset_name, split=split)
-    dataset = preprocess_dataset(dataset, config, split)
+    dataset = preprocess_dataset(dataset, config, split, eval)
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.train_batch_size, 

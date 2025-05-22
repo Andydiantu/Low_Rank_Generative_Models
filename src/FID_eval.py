@@ -11,7 +11,7 @@ import argparse
 
 
 def evaluate_fid(config, pipeline):
-        test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
+        test_dataloader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
         eval = Eval(test_dataloader, config)
         fid_score = eval.compute_metrics(pipeline)
         print(f"FID Score: {fid_score}")
@@ -23,8 +23,10 @@ def main():
     args = parser.parse_args()
 
     config = TrainingConfig()
+    config.noise_scheduler = "DDPM"
+    config.num_inference_steps = 1000
 
-    evaluate_path = "logs/" + args.evaluate_path + "/model.pt"
+    evaluate_path = "logs/" + args.evaluate_path + "/EMA_model_0099.pt"
     print(evaluate_path)
     evaluate_path = Path(__file__).parent.parent / evaluate_path 
     print(evaluate_path)
@@ -35,7 +37,7 @@ def main():
     
     # Move model to CUDA
     model = model.cuda()
-
+    
     noise_scheduler = create_noise_scheduler(config)
     vae = SD_VAE() if config.vae else DummyAutoencoderKL()
     
@@ -50,10 +52,18 @@ def main():
     # Move pipeline to CUDA
     pipeline = pipeline.to("cuda")
     
-    config.eval_dataset_size = 10000
+    config.eval_dataset_size = 50000
     config.eval_batch_size = 512
     print(f"Evaluating FID for {config.eval_dataset_size} images")
-    evaluate_fid(config, pipeline)
+
+    for i in [0.5]:
+        print(f"Evaluating FID for CFG scale {i+1}")
+        config.guidance_scale = i+1
+        print(config)
+        evaluate_fid(config, pipeline)
+        print(f"Evaluating FID for CFG scale {i+1} done")
+        print("--------------------------------")
+
 
 
 if __name__ == "__main__":
