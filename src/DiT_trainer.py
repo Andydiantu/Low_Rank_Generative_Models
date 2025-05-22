@@ -15,18 +15,23 @@ from galore_torch import GaLoreAdamW
 
 from config import TrainingConfig
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
-from eval import Eval
+from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
 from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement
 
 
 class DiTTrainer:
-    def __init__(self, model, noise_scheduler, train_dataloader, config):
+    def __init__(self, model, noise_scheduler, train_dataloader, validation_dataloader, config):
         self.model = model
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
+        self.validation_dataloader = validation_dataloader
         self.config = config
+        self.train_loss_history = []
+        self.val_loss_history = []
+        self.ema_val_loss_history = []
+        self.eval = Eval(train_dataloader , config)
 
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
@@ -37,7 +42,7 @@ class DiTTrainer:
         else:
             galore_params, regular_params = label_low_rank_gradient_layers(self.model)
             param_groups = [{'params': regular_params}, 
-                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 1, 'proj_type': 'std'}]
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std'}]
             self.optimizer = GaLoreAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -72,13 +77,14 @@ class DiTTrainer:
             os.makedirs(self.config.output_dir, exist_ok=True)
             accelerator.init_trackers("train_example")
 
-        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model = accelerator.prepare(
+        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model, validation_dataloader = accelerator.prepare(
             self.model,
             self.optimizer,
             self.train_dataloader,
             self.lr_scheduler,
             self.vae,
             self.ema_model,
+            self.validation_dataloader
         )  
 
         # Manually move ema_model to the correct device
@@ -94,6 +100,8 @@ class DiTTrainer:
                 leave=False  
             )
             progress_bar.set_description(f"Epoch {epoch}")
+
+            epoch_train_loss = 0.0
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
@@ -155,13 +163,17 @@ class DiTTrainer:
                     
                     alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
                     alphas = alphas.view(-1, 1, 1, 1)
-                    snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
+                    # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
+                    snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
+
                     snr_weight = (snr / (snr + 1)).detach() 
              
                     
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
                     loss = loss * snr_weight
                     loss = loss.mean()
+
+                    epoch_train_loss += loss.detach().item()
 
                     accelerator.backward(loss)
 
@@ -183,12 +195,25 @@ class DiTTrainer:
                 accelerator.log(logs, step=global_step)
                 global_step += 1
 
+            avg_epoch_train_loss = epoch_train_loss / len(train_dataloader)
+            self.train_loss_history.append(avg_epoch_train_loss)
+
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
                 print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step} \n")                
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
+
+                if (epoch + 1) % self.config.validation_epochs == 0:
+                    EMA_val_loss = self.validation_loss(accelerator, model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = True)
+                    self.ema_val_loss_history.append(EMA_val_loss)
+
+                    val_loss = self.validation_loss(accelerator, model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False)
+                    self.val_loss_history.append(val_loss)
+
+                    plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, save_path=os.path.join(self.config.output_dir, "loss_curves.png"))
+
                 if (
                     (epoch + 1) % self.config.save_image_epochs == 0
                     or (epoch + 1) % self.config.save_model_epochs == 0
@@ -209,6 +234,8 @@ class DiTTrainer:
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
+
+                        pipeline.set_progress_bar_config(disable=True)
 
                         pipeline.enable_attention_slicing()
 
@@ -273,15 +300,93 @@ class DiTTrainer:
         os.makedirs(test_dir, exist_ok=True)
         image_grid.save(f"{test_dir}/{epoch:04d}.png")
 
-    def evaluate_fid(self, config, pipeline):
-        test_dataloader = create_dataloader("uoft-cs/cifar10", "test", config)
-        eval = Eval(test_dataloader, config)
+    def evaluate_fid(self, config, pipeline, num_samples = 5000 ):
         self.ema_model.copy_to(self.model.parameters())
-        fid_score = eval.compute_metrics(pipeline)
+        fid_score = self.eval.compute_metrics(pipeline, num_samples)
         print(f"FID Score: {fid_score}")
         del pipeline
 
+    def validation_loss(self, accelerator, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False):
+        if accelerator.is_main_process:
+            if EMA:
+                ema_model.store(model.parameters())
+                ema_model.copy_to(model.parameters())
+            model.eval()
 
+            val_loss_epoch = 0
+            val_progress_bar = tqdm(
+                    total=len(validation_dataloader),
+                    disable="SLURM_JOB_ID" in os.environ,
+                    dynamic_ncols=True,
+                    leave=False
+                )
+            val_progress_bar.set_description(f"Epoch {epoch} - Validation")
+
+            with torch.no_grad():
+                for val_step, val_batch in enumerate(validation_dataloader):
+                    clean_images = val_batch["img"]
+                    if self.config.vae:
+                        latents = self.vae.encode(clean_images)
+                    else:
+                        latents = clean_images
+                    # Sample noise to add to the images
+                    noise = torch.randn(latents.shape).to(latents.device)
+                    batch_size = latents.shape[0]
+
+                    timesteps = torch.randint(
+                        0,
+                        self.noise_scheduler.num_train_timesteps,
+                        (batch_size,),
+                        device=clean_images.device,
+                    ).long()
+
+                    class_labels = None
+                    if "label" in val_batch:
+                        class_labels = val_batch["label"].to(latents.device)
+                    else:
+                        class_labels = torch.zeros(batch_size, dtype=torch.long, device=latents.device)
+                        
+                    if self.config.cfg_enabled:
+                        keep_mask = torch.rand(batch_size, device=latents.device) > self.config.unconditional_prob
+                        class_labels_input = class_labels.clone()
+                        class_labels_input = torch.where(
+                            keep_mask,
+                            class_labels_input,
+                            torch.full_like(class_labels_input, fill_value=1000)
+                        )
+                    else: 
+                        class_labels_input = class_labels
+
+                    noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
+
+                    noise_pred = model(
+                        noisy_images, timesteps, class_labels_input, return_dict=False
+                    )[0]
+
+                    val_loss = F.mse_loss(noise_pred, noise, reduction="none")
+                    val_loss = val_loss.mean()
+
+                    val_progress_bar.update(1)
+                    logs = {
+                        "loss": val_loss.detach().item(),
+                    }
+                    val_progress_bar.set_postfix(**logs)
+                    val_loss_epoch += val_loss.detach().item()
+            avg_val_loss = val_loss_epoch / len(validation_dataloader)
+            accelerator.log({"val_loss": avg_val_loss}, step=global_step)
+            val_progress_bar.close()
+            if EMA:
+                ema_model.restore(model.parameters())
+            model.train()
+
+
+            if "SLURM_JOB_ID" in os.environ:
+                log_message = f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}"
+                if accelerator.is_main_process:
+                    log_message += f" | val_loss: {avg_val_loss:.4f}"
+                print(log_message + "\n")
+
+            return avg_val_loss
 
 
 def main():
@@ -290,6 +395,7 @@ def main():
     print(config)
 
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
@@ -308,7 +414,7 @@ def main():
         model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
         print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
-    trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
+    trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
     trainer.train_loop()
 
     
@@ -323,7 +429,7 @@ def main():
         model = apply_low_rank_compression(model, threshold=0.6)
         print(f"number of parameters in model after compression is: {count_parameters(model)}")
         config.num_epochs = 5 # finetune for 5 epoch TODO: parameterise this.
-        finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, config)
+        finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
         finetune_trainer.train_loop()
 
         compressed_pipeline = DiTPipeline(
@@ -333,7 +439,7 @@ def main():
         )
 
         compressed_pipeline.enable_attention_slicing()
-        fid_score = eval.compute_metrics(compressed_pipeline)
+        fid_score = finetune_trainer.eval.compute_metrics(compressed_pipeline)
         print(f"FID Score: {fid_score}")
 
 
