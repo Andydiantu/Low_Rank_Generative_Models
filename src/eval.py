@@ -27,7 +27,6 @@ class Eval:
             # Convert from [-1, 1] to [0, 1] range for FID calculation
             real_images = (real_images + 1.0) / 2.0
             self.fid.update(real_images, real=True)
-            break
 
         print("Real features computed")
 

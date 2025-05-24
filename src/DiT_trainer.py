@@ -161,16 +161,16 @@ class DiTTrainer:
                         
 
                     
-                    alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
-                    alphas = alphas.view(-1, 1, 1, 1)
+                    # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
+                    # alphas = alphas.view(-1, 1, 1, 1)
                     # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
-                    snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
+                    # snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
 
-                    snr_weight = (snr / (snr + 1)).detach() 
+                    # snr_weight = (snr / (snr + 1)).detach() 
              
                     
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
-                    loss = loss * snr_weight
+                    # loss = loss * snr_weight
                     loss = loss.mean()
 
                     epoch_train_loss += loss.detach().item()
