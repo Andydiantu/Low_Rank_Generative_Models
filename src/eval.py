@@ -22,11 +22,14 @@ class Eval:
         self.fid = FrechetInceptionDistance(feature=2048, normalize=True, reset_real_features=False)
         
         # Precompute real image features
-        for batch in tqdm(self.val_dataloader, desc="Computing real features"):
+        for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
             real_images = batch["img"]
             # Convert from [-1, 1] to [0, 1] range for FID calculation
             real_images = (real_images + 1.0) / 2.0
             self.fid.update(real_images, real=True)
+            break
+
+        print("Real features computed")
 
     def compute_metrics(self, pipeline, num_samples = 5000):
         # TODO: Make this conditional and parameterise the number of classes
@@ -70,9 +73,9 @@ def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, save
     val_epochs = list(range(validation_epochs, validation_epochs * len(val_loss) + 1, validation_epochs))
     
     plt.figure(figsize=(10, 6))
-    plt.plot(train_epochs, train_loss, label='Training Loss', marker='.')
-    plt.plot(val_epochs, val_loss, label='Validation Loss', marker='o')
-    plt.plot(val_epochs, ema_val_loss, label='EMA Validation Loss', marker='x')
+    plt.plot(train_epochs, train_loss, label='Training Loss')
+    plt.plot(val_epochs, val_loss, label='Validation Loss')
+    plt.plot(val_epochs, ema_val_loss, label='EMA Validation Loss')
     
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
@@ -81,5 +84,7 @@ def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, save
     plt.grid(True, linestyle='--', alpha=0.7)
     
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=500)
+
+    plt.close()
     
