@@ -212,7 +212,7 @@ class DiTTrainer:
                     val_loss = self.validation_loss(accelerator, model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False)
                     self.val_loss_history.append(val_loss)
 
-                    plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, save_path=os.path.join(self.config.output_dir, "loss_curves.png"))
+                    plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, save_path=os.path.join(self.config.output_dir, "loss_curves.pdf"))
 
                 if (
                     (epoch + 1) % self.config.save_image_epochs == 0
@@ -381,10 +381,8 @@ class DiTTrainer:
 
 
             if "SLURM_JOB_ID" in os.environ:
-                log_message = f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}"
                 if accelerator.is_main_process:
-                    log_message += f" | val_loss: {avg_val_loss:.4f}"
-                print(log_message + "\n")
+                    print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}")
 
             return avg_val_loss
 
