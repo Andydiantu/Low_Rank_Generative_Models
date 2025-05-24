@@ -116,7 +116,7 @@ class DiTTrainer:
                 # Sample a random timestep for each image
                 timesteps = torch.randint(
                     0,
-                    self.noise_scheduler.num_train_timesteps,
+                    self.noise_scheduler.config.num_train_timesteps,
                     (batch_size,),
                     device=clean_images.device,
                 ).long()
@@ -235,9 +235,9 @@ class DiTTrainer:
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
 
-                        pipeline.set_progress_bar_config(disable=True)
+                        # pipeline.set_progress_bar_config(disable=True)
 
-                        pipeline.enable_attention_slicing()
+                        # pipeline.enable_attention_slicing()
 
                         # Evaluation
                         if (
@@ -288,7 +288,8 @@ class DiTTrainer:
 
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
-            class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], dtype=torch.long),
+            class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], 
+                                       dtype=torch.long, device="cuda"),
             generator=torch.manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
             guidance_scale=config.guidance_scale if config.cfg_enabled else None,
@@ -335,7 +336,7 @@ class DiTTrainer:
 
                     timesteps = torch.randint(
                         0,
-                        self.noise_scheduler.num_train_timesteps,
+                        self.noise_scheduler.config.num_train_timesteps,
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
