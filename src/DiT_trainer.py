@@ -234,10 +234,8 @@ class DiTTrainer:
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
-
-                        # pipeline.set_progress_bar_config(disable=True)
-
-                        # pipeline.enable_attention_slicing()
+                        
+                        pipeline.set_progress_bar_config(disable=True)
 
                         # Evaluation
                         if (
@@ -288,8 +286,7 @@ class DiTTrainer:
 
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
-            class_labels=torch.tensor([i % 10 for i in range(config.eval_batch_size)], 
-                                       dtype=torch.long, device="cuda"),
+            class_labels=[i % 10 for i in range(config.eval_batch_size)],
             generator=torch.manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
             guidance_scale=config.guidance_scale if config.cfg_enabled else None,

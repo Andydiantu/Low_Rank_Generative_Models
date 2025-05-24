@@ -42,7 +42,7 @@ class Eval:
         for i in range(batch_num):
             batch_labels = labels[i*self.eval_batch_size:(i+1)*self.eval_batch_size]
             images = pipeline(
-                class_labels = batch_labels,
+                class_labels = batch_labels.tolist(),
                 num_inference_steps=self.num_inference_steps,
                 output_type="numpy",
                 guidance_scale=self.guidance_scale if self.cfg_enabled else None,
