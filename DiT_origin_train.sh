@@ -11,4 +11,4 @@ source /vol/cuda/12.0.0/setup.sh
 /usr/bin/nvidia-smi
 uptime
 
-python src/DiT_trainer.py
+python -u src/DiT_trainer.py
