@@ -13,7 +13,7 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW
 
-from config import TrainingConfig
+from config import TrainingConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader
@@ -200,7 +200,7 @@ class DiTTrainer:
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step} \n")                
+                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}")                
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
@@ -301,7 +301,7 @@ class DiTTrainer:
     def evaluate_fid(self, config, pipeline, num_samples = 5000 ):
         self.ema_model.copy_to(self.model.parameters())
         fid_score = self.eval.compute_metrics(pipeline, num_samples)
-        print(f"FID Score: {fid_score}")
+        print(f"FID Score: {fid_score} \n")
         del pipeline
 
     def validation_loss(self, accelerator, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False):
@@ -379,8 +379,7 @@ class DiTTrainer:
 
 
             if "SLURM_JOB_ID" in os.environ:
-                if accelerator.is_main_process:
-                    print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}")
+                print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}\n")
 
             return avg_val_loss
 
@@ -388,8 +387,8 @@ class DiTTrainer:
 def main():
 
     config = TrainingConfig()
-    print(config)
-
+    print_config(config)
+    
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
     validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
 
