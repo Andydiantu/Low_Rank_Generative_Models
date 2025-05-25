@@ -6,6 +6,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 import os
+from pathlib import Path
 
 
 class Eval: 
@@ -16,19 +17,29 @@ class Eval:
         self.num_inference_steps = config.num_inference_steps
         self.guidance_scale = config.guidance_scale
         self.cfg_enabled = config.cfg_enabled
-        self.setup_metrics()
+        self.setup_metrics(config.real_features_path)
 
-    def setup_metrics(self):
+    def setup_metrics(self, real_features_path):
         self.fid = FrechetInceptionDistance(feature=2048, normalize=True, reset_real_features=False)
-        
-        # Precompute real image features
-        for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
-            real_images = batch["img"]
-            # Convert from [-1, 1] to [0, 1] range for FID calculation
-            real_images = (real_images + 1.0) / 2.0
-            self.fid.update(real_images, real=True)
+        real_features_path = Path(__file__).parent.parent / real_features_path
 
-        print("Real features computed")
+        '''
+        Legacy code for computing real features
+        '''
+        # # Precompute real image features
+        # for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
+        #     real_images = batch["img"]
+        #     # Convert from [-1, 1] to [0, 1] range for FID calculation
+        #     real_images = (real_images + 1.0) / 2.0
+        #     self.fid.update(real_images, real=True)
+
+        # torch.save(self.fid, real_features_path)
+        # print(self.fid.real_features_num_samples)
+        # print("Real features computed")
+
+        self.fid = torch.load(real_features_path, weights_only=False)
+        print(self.fid.real_features_num_samples)
+        print("Real features loaded")
 
     def compute_metrics(self, pipeline, num_samples = 5000):
         # TODO: Make this conditional and parameterise the number of classes
