@@ -398,6 +398,11 @@ def main():
     print_model_settings(model)
     print_noise_scheduler_settings(noise_scheduler)
 
+    if config.low_rank_pretraining:
+        model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
+        print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+
+
     if config.load_pretrained_model:
         path = Path(__file__).parent.parent / config.pretrained_model_path
         print(f"Loading pretrained model from {path}")
@@ -405,10 +410,7 @@ def main():
         print("Loading complete")
 
 
-    if config.low_rank_pretraining:
-        model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
-        print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-
+ 
     trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
     trainer.train_loop()
 
