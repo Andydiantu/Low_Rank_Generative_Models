@@ -172,17 +172,19 @@ class DiTTrainer:
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
                     # loss = loss * snr_weight
                     loss = loss.mean()
+                    
+                    if self.config.low_rank_pretraining:
+                        ortho_loss = self.config.ortho_loss_weight * sum(
+                            m.orthogonality_loss(rho=0.01)
+                            for m in model.modules() if isinstance(m, LowRankLinear)
+                        )
 
-                    ortho_loss = self.config.ortho_loss_weight * sum(
-                        m.orthogonality_loss(rho=0.01)
-                        for m in model.modules() if isinstance(m, LowRankLinear)
-                    )
+                        print(f"ortho_loss: {ortho_loss.detach().item()}")
+                        print(f"loss: {loss.detach().item()}")
+                        print(f"ortho_loss requires_grad: {ortho_loss.requires_grad}")
+
 
                     epoch_train_loss += loss.detach().item()
-
-                    print(f"ortho_loss: {ortho_loss.detach().item()}")
-                    print(f"loss: {loss.detach().item()}")
-                    print(f"ortho_loss requires_grad: {ortho_loss.requires_grad}")
 
 
                     loss = loss +  ortho_loss
