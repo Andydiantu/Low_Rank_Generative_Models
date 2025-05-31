@@ -23,7 +23,7 @@ class TrainingConfig:
     # save_image_epochs: int = 1 # for testing
     # save_model_epochs: int = 1 # for testing
     # evaluate_fid_epochs: int = 2 # for testing
-    eval_dataset_size: int = 10000
+    eval_dataset_size: int = 5000
     noise_scheduler: str = "DDIM"
     num_training_steps: int = 1000
     num_inference_steps: int = 100
@@ -31,13 +31,14 @@ class TrainingConfig:
     unconditional_prob: float = 0.1
     guidance_scale: float = 2
     low_rank_pretraining: bool = True
+    ortho_loss_weight: float = 1e-1 
     low_rank_rank: int = 24
     low_rank_compression: bool = False
     low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
     real_features_path: str = "data/fid_features/CIFAR10_train_features.pt"
     load_pretrained_model: bool = False
-    pretrained_model_path: Optional[str] = "logs/DiT20250524_180550/model_0299.pt" # Or Path if you prefer
+    pretrained_model_path: Optional[str] = "logs/DiT20250525_112625/model_1799.pt" # Or Path if you prefer
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = False
     push_to_hub: bool = False

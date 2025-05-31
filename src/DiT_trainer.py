@@ -18,7 +18,7 @@ from DiT import create_model, create_noise_scheduler, print_model_settings, prin
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear
 
 
 class DiTTrainer:
@@ -173,7 +173,21 @@ class DiTTrainer:
                     # loss = loss * snr_weight
                     loss = loss.mean()
 
+                    ortho_loss = self.config.ortho_loss_weight * sum(
+                        m.orthogonality_loss(rho=0.01)
+                        for m in model.modules() if isinstance(m, LowRankLinear)
+                    )
+
                     epoch_train_loss += loss.detach().item()
+
+                    print(f"ortho_loss: {ortho_loss.detach().item()}")
+                    print(f"loss: {loss.detach().item()}")
+                    print(f"ortho_loss requires_grad: {ortho_loss.requires_grad}")
+
+
+                    loss = loss +  ortho_loss
+                    
+
 
                     accelerator.backward(loss)
 
