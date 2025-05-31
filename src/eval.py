@@ -90,6 +90,7 @@ def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, save
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss Curves')
+    plt.yscale('log')  # Set y-axis to logarithmic scale
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
     
