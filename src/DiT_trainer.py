@@ -102,6 +102,7 @@ class DiTTrainer:
             progress_bar.set_description(f"Epoch {epoch}")
 
             epoch_train_loss = 0.0
+            epoch_ortho_loss = 0.0
 
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
@@ -178,16 +179,13 @@ class DiTTrainer:
                             m.orthogonality_loss(rho=0.01)
                             for m in model.modules() if isinstance(m, LowRankLinear)
                         )
+                        epoch_ortho_loss += ortho_loss.detach().item()
 
-                        print(f"ortho_loss: {ortho_loss.detach().item()}")
-                        print(f"loss: {loss.detach().item()}")
-                        print(f"ortho_loss requires_grad: {ortho_loss.requires_grad}")
-
-
+                      
                     epoch_train_loss += loss.detach().item()
 
-
-                    loss = loss +  ortho_loss
+                    if self.config.low_rank_pretraining:
+                        loss = loss +  ortho_loss
                     
 
 
@@ -256,19 +254,16 @@ class DiTTrainer:
                         # Evaluation
                         if (
                             (epoch + 1) % self.config.save_image_epochs == 0
-                            or epoch == self.config.num_epochs - 1
                         ):
                             self.evaluate(self.config, epoch, pipeline)
 
                         if (
                             (epoch + 1) % self.config.evaluate_fid_epochs == 0
-                            or epoch == self.config.num_epochs - 1
                         ): 
                             self.evaluate_fid(self.config, pipeline)
 
                         if (
                             (epoch + 1) % self.config.save_model_epochs == 0
-                            or epoch == self.config.num_epochs - 1
                         ):
                             pipeline.save_pretrained(self.config.output_dir)
                             # Save EMA model (which is currently in the model)
@@ -439,9 +434,9 @@ def main():
 
         
         print(f"number of parameters in model: {count_parameters(model)}")
-        model = apply_low_rank_compression(model, threshold=0.6)
+        model = apply_low_rank_compression(model, threshold=0.9)
         print(f"number of parameters in model after compression is: {count_parameters(model)}")
-        config.num_epochs = 5 # finetune for 5 epoch TODO: parameterise this.
+        config.num_epochs = 1 # finetune for 5 epoch TODO: parameterise this.
         finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
         finetune_trainer.train_loop()
 
