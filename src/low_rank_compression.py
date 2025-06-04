@@ -6,35 +6,34 @@ import torch.nn as nn
 class LowRankLinear(nn.Module):
     def __init__(self, in_features, out_features, rank, initialise=True):
         super().__init__()
-        self.rank = rank
+        # Limit rank to the maximum possible rank for this layer
+        self.rank = in_features if rank is None else min(rank, min(in_features, out_features))
         self.in_features = in_features
         self.out_features = out_features
 
-        self.Uk = nn.Parameter(torch.Tensor(out_features, rank))
-        self.Sk = nn.Parameter(torch.Tensor(rank))  # Diagonal singular values
-        self.Vhk = nn.Parameter(torch.Tensor(rank, in_features))
+        self.U = nn.Parameter(torch.Tensor(out_features, self.rank))
+        self.V = nn.Parameter(torch.Tensor(self.rank, in_features))
         
         self.bias = nn.Parameter(torch.Tensor(out_features))
         
         if initialise:
             # Initialize using standard linear init strategy
             self.reset_parameters()
-
+    @torch.no_grad()
     def reset_parameters(self):
-        # Initialize Uk and Vhk with orthogonal matrices
-        nn.init.orthogonal_(self.Uk)
-        nn.init.orthogonal_(self.Vhk)
-        
-        # Initialize Sk with 1/sqrt(rank) scaling for stable gradients
-        nn.init.normal_(self.Sk, mean=1.0, std=1.0 / self.rank**0.5)
-        
-        # Initialize bias
-        bound = 1 / self.in_features**0.5
-        nn.init.uniform_(self.bias, -bound, bound)
+
+        W_full = torch.empty(self.out_features, self.in_features)
+        nn.init.xavier_uniform_(W_full)
+
+        U_, S_, Vh_ = torch.linalg.svd(W_full, full_matrices=False)
+        root_S = S_[: self.rank].sqrt()   
+
+        self.U.copy_(U_[:, : self.rank] * root_S)
+        self.V.copy_(Vh_[: self.rank, :] * root_S.view(-1, 1))        
+        nn.init.constant_(self.bias, 0)
 
     def forward(self, x):
-        low_rank_weight = self.Uk @ torch.diag(self.Sk) @ self.Vhk
-        return nn.functional.linear(x, low_rank_weight, self.bias)
+        return nn.functional.linear(x, self.U @ self.V, self.bias)
     
     def svd_decomposition(self, base_linear, rank=None, threshold=None):
         if(rank is None and threshold is None):
@@ -50,11 +49,12 @@ class LowRankLinear(nn.Module):
             cumulative_energy = torch.cumsum(S_squared / total_energy, dim=0)
             self.rank = int((cumulative_energy < self.threshold).sum()) + 1
         else: 
-            self.rank = rank
+            self.rank = min(rank, min(self.out_features, self.in_features))
 
-        self.Uk = nn.Parameter(U[:, : self.rank])
-        self.Sk = nn.Parameter(S[: self.rank])
-        self.Vhk = nn.Parameter(Vh[: self.rank, :])
+        root_S = S[: self.rank].sqrt()   
+
+        self.U = nn.Parameter(U[:, : self.rank] * root_S)
+        self.V = nn.Parameter(Vh[: self.rank, :] * root_S.view(-1, 1))
 
         self.bias = base_linear.bias if base_linear.bias is not None else 0
 
@@ -71,8 +71,14 @@ class LowRankLinear(nn.Module):
             return (torch.norm(mat.T @ mat - eye_n, p='fro') ** 2 +
                     torch.norm(mat @ mat.T - eye_m, p='fro') ** 2) / (mat.shape[0] ** 2)
 
-        return rho * (_dso(self.Uk) + _dso(self.Vhk))
-            
+        return rho * (_dso(self.U) + _dso(self.V))
+
+    def frobenius_loss(self) -> torch.Tensor:
+        """
+        0.5 * ‖UVᵀ‖_F²   —>  add   λ * frobenius_loss()
+        to your main loss for Frobenius-decay.
+        """
+        return 0.5 * (self.U @ self.V).pow(2).sum()
 
 
 def apply_low_rank_compression(module, rank=None, threshold=None):
@@ -93,7 +99,7 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
     
     for name, child in module.named_children():
         if isinstance(child, nn.Linear):
-            low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank = rank, initialise = False)
+            low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank = None, initialise = False)
 
             if rank is not None:
                 low_rank_layer.svd_decomposition(child, rank=rank)
