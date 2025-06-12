@@ -4,10 +4,8 @@ import torch
 #a wrapper for Stable Diffusion's VAEs 
 class SD_VAE: 
     def __init__(self, device="cuda") -> None:
-        vae = AutoencoderKL.from_pretrained(
-            "stabilityai/sd-vae-ft-ema"
-        )
-
+        vae = AutoencoderKL.from_pretrained("tpremoli/MLD-CelebA-128-80k", subfolder="vae")
+        vae.eval()
         vae = vae.to(device)
         self.vae = vae
 
