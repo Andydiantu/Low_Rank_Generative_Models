@@ -3,9 +3,8 @@ from diffusers import DDPMScheduler, DDIMScheduler, DiTTransformer2DModel
 # TODO: Parameterise the model config
 def create_model(config):
     model = DiTTransformer2DModel(
-        sample_size=config.image_size,
+        sample_size=config.image_size if not config.vae else 16,
         in_channels=config.latent_channels if config.vae else config.pixel_channels,
-        out_channels=config.latent_channels if config.vae else config.pixel_channels,
         num_layers=12,  
         num_attention_heads=6,
         attention_head_dim=64,
