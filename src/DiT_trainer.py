@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import time
 
 import torch
 import torch.profiler
@@ -42,7 +43,7 @@ class DiTTrainer:
         else:
             galore_params, regular_params = label_low_rank_gradient_layers(self.model)
             param_groups = [{'params': regular_params}, 
-                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std'}]
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 100, 'scale': 0.25, 'proj_type': 'std'}]
             self.optimizer = GaLoreAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -59,6 +60,9 @@ class DiTTrainer:
 
         if config.vae:
             self.vae = SD_VAE()
+            # Freeze VAE parameters explicitly
+            for param in self.vae.vae.parameters():
+                param.requires_grad = False
         else:
             self.vae = DummyAutoencoderKL()
 
@@ -106,8 +110,9 @@ class DiTTrainer:
             epoch_frobenius_loss = 0.0
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
-                if self.config.vae:
-                    latents = self.vae.encode(clean_images)
+                if self.config.vae and not self.config.use_latents:
+                    with torch.no_grad():
+                        latents = self.vae.encode(clean_images)
                 else:
                     latents = clean_images
                 # Sample noise to add to the images
@@ -301,10 +306,10 @@ class DiTTrainer:
 
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
-            class_labels=[i % 10 for i in range(config.eval_batch_size)],
+            class_labels=[i % 10 for i in range(config.eval_batch_size)] if config.cfg_enabled else torch.zeros(config.eval_batch_size, dtype=torch.long),
             generator=torch.manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
-            guidance_scale=config.guidance_scale if config.cfg_enabled else None,
+            guidance_scale=config.guidance_scale if config.cfg_enabled else 1,
         ).images
 
         image_grid = self.make_grid(images, rows=4, cols=4)
@@ -338,8 +343,9 @@ class DiTTrainer:
             with torch.no_grad():
                 for val_step, val_batch in enumerate(validation_dataloader):
                     clean_images = val_batch["img"]
-                    if self.config.vae:
-                        latents = self.vae.encode(clean_images)
+                    if self.config.vae and not self.config.use_latents:
+                        with torch.no_grad():
+                            latents = self.vae.encode(clean_images)
                     else:
                         latents = clean_images
                     # Sample noise to add to the images
@@ -404,8 +410,11 @@ def main():
     config = TrainingConfig()
     print_config(config)
     
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
+    # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
+
+    train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
+    validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
