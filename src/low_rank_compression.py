@@ -180,3 +180,22 @@ def count_parameter_groups(galore_params, regular_params):
     print(f"Total: {(galore_bytes + regular_bytes)/1024**2:.2f} MB")
     
     return galore_count, regular_count, total_count
+
+def nuclear_norm(model) -> torch.Tensor:
+    """
+    Sum of the nuclear norms (σ₁ + σ₂ + …) of every linear-layer weight
+    in the model, including LowRankLinear layers.
+
+    Returns:
+        A scalar tensor on the same device as the model parameters.
+    """
+    device = next(model.parameters()).device
+    total = torch.tensor(0.0, device=device)
+
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            total = total + torch.linalg.matrix_norm(module.weight, ord='nuc')
+        elif isinstance(module, LowRankLinear):
+            total = total + torch.linalg.matrix_norm(module.U @ module.V, ord='nuc')
+
+    return total

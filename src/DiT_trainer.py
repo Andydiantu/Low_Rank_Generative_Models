@@ -19,7 +19,7 @@ from DiT import create_model, create_noise_scheduler, print_model_settings, prin
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm
 
 
 class DiTTrainer:
@@ -108,6 +108,7 @@ class DiTTrainer:
             epoch_train_loss = 0.0
             epoch_ortho_loss = 0.0
             epoch_frobenius_loss = 0.0
+            epoch_nuclear_norm_loss = 0.0
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
                 if self.config.vae and not self.config.use_latents:
@@ -192,7 +193,10 @@ class DiTTrainer:
                         )
                         epoch_frobenius_loss += frobenius_loss.detach().item()
 
-                      
+                    if self.config.nuclear_norm_loss:
+                        nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
+                        epoch_nuclear_norm_loss += nuclear_norm_loss.detach().item()
+
                     epoch_train_loss += loss.detach().item()
 
                     if self.config.low_rank_pretraining:
@@ -212,6 +216,7 @@ class DiTTrainer:
                     "loss": loss.detach().item(),
                     "lr": lr_scheduler.get_last_lr()[0],
                     "step": global_step,
+                    "nuclear_norm_loss": nuclear_norm_loss.detach().item() if self.config.nuclear_norm_loss else 0,
                 }
                 
                 progress_bar.set_postfix(**logs)
@@ -223,7 +228,9 @@ class DiTTrainer:
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + (f" | ortho_loss: {ortho_loss.detach().item():.4f} | frobenius_loss: {frobenius_loss.detach().item():.4f}" if self.config.low_rank_pretraining else ""))                
+                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
+                      (f" | ortho_loss: {ortho_loss.detach().item():.4f} | frobenius_loss: {frobenius_loss.detach().item():.4f}" if self.config.low_rank_pretraining else "") + 
+                      (f" | nuclear_norm_loss: {epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else ""))                
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
@@ -410,11 +417,11 @@ def main():
     config = TrainingConfig()
     print_config(config)
     
-    # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
-    # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
 
-    train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
-    validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
+    # train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
+    # validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
