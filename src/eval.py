@@ -23,23 +23,25 @@ class Eval:
         self.fid = FrechetInceptionDistance(feature=2048, normalize=True, reset_real_features=False)
         real_features_path = Path(__file__).parent.parent / real_features_path
 
-        '''
-        Legacy code for computing real features
-        '''
-        # # Precompute real image features
-        # for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
-        #     real_images = batch["img"]
-        #     # Convert from [-1, 1] to [0, 1] range for FID calculation
-        #     real_images = (real_images + 1.0) / 2.0
-        #     self.fid.update(real_images, real=True)
+        if real_features_path.exists():
+            self.fid = torch.load(real_features_path, weights_only=False)
+            print(self.fid.real_features_num_samples)
+            print("Real features loaded")
+        else:
+            print(self.val_dataloader)
+            # Precompute real image features
+            for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
+                real_images = batch["img"]
+                # Convert from [-1, 1] to [0, 1] range for FID calculation
+                real_images = (real_images + 1.0) / 2.0
+                self.fid.update(real_images, real=True)
+            
+            real_features_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(self.fid, real_features_path)
+            print(self.fid.real_features_num_samples)
+            print("Real features computed")
 
-        # torch.save(self.fid, real_features_path)
-        # print(self.fid.real_features_num_samples)
-        # print("Real features computed")
-
-        self.fid = torch.load(real_features_path, weights_only=False)
-        print(self.fid.real_features_num_samples)
-        print("Real features loaded")
+        
 
     def compute_metrics(self, pipeline, num_samples = 5000):
         # TODO: Make this conditional and parameterise the number of classes
