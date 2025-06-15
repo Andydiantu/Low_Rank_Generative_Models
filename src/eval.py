@@ -47,7 +47,6 @@ class Eval:
         labels = torch.arange(10).repeat(per_class)  
         labels = labels[torch.randperm(num_samples)]
 
-
         batch_num = num_samples // self.eval_batch_size
         for i in range(batch_num):
             batch_labels = labels[i*self.eval_batch_size:(i+1)*self.eval_batch_size]
@@ -55,7 +54,7 @@ class Eval:
                 class_labels = batch_labels.tolist(),
                 num_inference_steps=self.num_inference_steps,
                 output_type="numpy",
-                guidance_scale=self.guidance_scale if self.cfg_enabled else None,
+                guidance_scale=self.guidance_scale if self.cfg_enabled else 1,
             ).images
             
             generated_images = torch.tensor(images)

@@ -3,12 +3,13 @@ from diffusers import DDPMScheduler, DDIMScheduler, DiTTransformer2DModel
 # TODO: Parameterise the model config
 def create_model(config):
     model = DiTTransformer2DModel(
-        sample_size=config.image_size if not config.vae else 16,
+        sample_size=config.image_size if not config.vae else 16,  # 16 for 128px images with 8x downsampling
         in_channels=config.latent_channels if config.vae else config.pixel_channels,
-        num_layers=12,  
-        num_attention_heads=6,
-        attention_head_dim=64,
-        patch_size = 2,
+        out_channels=config.latent_channels if config.vae else config.pixel_channels,
+        num_layers=12,  # DiT-S/2 uses 12 layers
+        num_attention_heads=6,  # DiT-S/2 uses 6 heads
+        attention_head_dim=64,  # This gives 384 total dim (6*64)
+        patch_size=2,
     )
     return model
 

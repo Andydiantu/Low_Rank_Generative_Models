@@ -53,9 +53,10 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
         ])
         tfm = transforms.Compose(base_transforms)
 
+    # TODO: fix it so it works for both cifar10 and celebA
     dataset.set_transform(
         lambda examples: {
-            "img": [tfm(image.convert("RGB")) for image in examples["image"]] if "image" in examples else None,
+            "img": [tfm(image.convert("RGB")) for image in examples["img"]] if "img" in examples else [tfm(image.convert("RGB")) for image in examples["image"]],
             # "label": examples["label"] if "label" in examples else None
         }
     )
