@@ -36,7 +36,6 @@ class SD_VAE:
             z = z.unsqueeze(dim=0)
         with torch.no_grad():
             x = self.vae.decode(z / self.vae.config.scaling_factor, return_dict=False)[0]
-            #x = self.vae.decode(z , return_dict=False)[0]
 
         x = ((1 + x) * 0.5).clip(0, 1)
         return x
