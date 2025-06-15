@@ -81,9 +81,18 @@ def create_dataloader(dataset_name, split, config, eval=False, latents=False):
     )
     return dataloader
 
+def create_lantent_dataloader_celebA(config):
+    dataset = load_pre_encoded_latents("celebA", "train")
+    split_dataset = dataset.train_test_split(test_size=0.05, seed=42)
+    train_dataset = split_dataset['train']
+    val_dataset = split_dataset['test']
+
+    print(f"Train size: {len(train_dataset)}")
+    print(f"Val size: {len(val_dataset)}")
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=2)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=2)
+    return train_dataloader, val_dataloader
+
+
 if __name__ == "__main__":
-    latent_dataloader = create_dataloader("celebA", "train", TrainingConfig(), latents=True)
-    for batch in latent_dataloader:
-        print(type(batch["img"]))
-        print(batch["img"].shape)
-        break
+    create_lantent_dataloader_celebA(TrainingConfig())

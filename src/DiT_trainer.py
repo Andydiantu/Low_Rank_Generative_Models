@@ -17,7 +17,7 @@ from galore_torch import GaLoreAdamW
 from config import TrainingConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval, plot_loss_curves
-from preprocessing import create_dataloader
+from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
 from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm
 
@@ -417,11 +417,13 @@ def main():
     config = TrainingConfig()
     print_config(config)
     
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
+    # train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    # validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
 
     # train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
     # validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
+
+    train_loader, validation_loader = create_lantent_dataloader_celebA(config)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
