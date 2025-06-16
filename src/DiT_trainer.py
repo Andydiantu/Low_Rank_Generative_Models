@@ -19,7 +19,7 @@ from DiT import create_model, create_noise_scheduler, print_model_settings, prin
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm
 
 
 class DiTTrainer:
@@ -109,6 +109,7 @@ class DiTTrainer:
             epoch_ortho_loss = 0.0
             epoch_frobenius_loss = 0.0
             epoch_nuclear_norm_loss = 0.0
+            epoch_frobenius_norm_loss = 0.0
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"]
                 if self.config.vae and not self.config.use_latents:
@@ -195,7 +196,13 @@ class DiTTrainer:
 
                     if self.config.nuclear_norm_loss:
                         nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
+                        loss = loss + nuclear_norm_loss
                         epoch_nuclear_norm_loss += nuclear_norm_loss.detach().item()
+
+                    if self.config.frobenius_norm_loss:
+                        frobenius_norm_loss = self.config.frobenius_norm_loss_weight * (frobenius_norm(model) ** 2) 
+                        loss = loss + frobenius_norm_loss
+                        epoch_frobenius_norm_loss += frobenius_norm_loss.detach().item()
 
                     epoch_train_loss += loss.detach().item()
 
@@ -217,6 +224,7 @@ class DiTTrainer:
                     "lr": lr_scheduler.get_last_lr()[0],
                     "step": global_step,
                     "nuclear_norm_loss": nuclear_norm_loss.detach().item() if self.config.nuclear_norm_loss else 0,
+                    "frobenius_norm_loss": f"{frobenius_norm_loss.detach().item():.6f}" if self.config.frobenius_norm_loss else 0,
                 }
                 
                 progress_bar.set_postfix(**logs)
@@ -224,14 +232,19 @@ class DiTTrainer:
                 global_step += 1
 
             avg_epoch_train_loss = epoch_train_loss / len(train_dataloader)
+            avg_epoch_ortho_loss = epoch_ortho_loss / len(train_dataloader)
+            avg_epoch_frobenius_loss = epoch_frobenius_loss / len(train_dataloader)
+            avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
+            avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
             self.train_loss_history.append(avg_epoch_train_loss)
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed | loss: {loss.detach().item():.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
-                      (f" | ortho_loss: {ortho_loss.detach().item():.4f} | frobenius_loss: {frobenius_loss.detach().item():.4f}" if self.config.low_rank_pretraining else "") + 
-                      (f" | nuclear_norm_loss: {epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else ""))                
-
+                print(f"Epoch {epoch} completed | loss: {avg_epoch_train_loss:.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
+                      (f" | ortho_loss: {avg_epoch_ortho_loss:.4f} | frobenius_loss: {avg_epoch_frobenius_loss:.4f}" if self.config.low_rank_pretraining else "") + 
+                      (f" | nuclear_norm_loss: {avg_epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else "") +
+                      (f" | frobenius_norm_loss: {avg_epoch_frobenius_norm_loss:.4f}" if self.config.frobenius_norm_loss else ""))                
+            
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if accelerator.is_main_process:
 

@@ -199,3 +199,22 @@ def nuclear_norm(model) -> torch.Tensor:
             total = total + torch.linalg.matrix_norm(module.U @ module.V, ord='nuc')
 
     return total
+
+def frobenius_norm(model) -> torch.Tensor:
+    """
+    Sum of the frobenius norms (||W||_F) of every linear-layer weight
+    in the model, including LowRankLinear layers.
+
+    Returns:
+        A scalar tensor on the same device as the model parameters.
+    """
+    device = next(model.parameters()).device
+    total = torch.tensor(0.0, device=device)
+
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            total = total + torch.linalg.matrix_norm(module.weight, ord='fro')
+        elif isinstance(module, LowRankLinear):
+            total = total + torch.linalg.matrix_norm(module.U @ module.V, ord='fro')
+
+    return total
