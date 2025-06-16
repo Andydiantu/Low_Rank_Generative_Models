@@ -14,7 +14,7 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW
 
-from config import TrainingConfig, print_config
+from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
@@ -204,7 +204,7 @@ class DiTTrainer:
 
                     accelerator.backward(loss)
 
-                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                    accelerator.clip_grad_norm_(model.parameters(), 5.0)
                     optimizer.step()
                     lr_scheduler.step()
                     ema_model.step(model.parameters())
@@ -417,13 +417,13 @@ def main():
     config = TrainingConfig()
     print_config(config)
     
-    # train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    # validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
 
     # train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
     # validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
 
-    train_loader, validation_loader = create_lantent_dataloader_celebA(config)
+    # train_loader, validation_loader = create_lantent_dataloader_celebA(config)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
