@@ -314,7 +314,7 @@ class DiTTrainer:
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
             class_labels=[i % 10 for i in range(config.eval_batch_size)] if config.cfg_enabled else torch.zeros(config.eval_batch_size, dtype=torch.long),
-            generator=torch.manual_seed(config.seed),
+            generator = torch.Generator(device=self.model.device).manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
             guidance_scale=config.guidance_scale if config.cfg_enabled else 1,
         ).images
