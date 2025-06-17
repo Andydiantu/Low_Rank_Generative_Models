@@ -21,6 +21,11 @@ class Eval:
 
     def setup_metrics(self, real_features_path):
         self.fid = FrechetInceptionDistance(feature=2048, normalize=True, reset_real_features=False)
+        
+        # Move FID metric to GPU if available
+        if torch.cuda.is_available():
+            self.fid = self.fid.cuda()
+        
         real_features_path = Path(__file__).parent.parent / real_features_path
 
         if real_features_path.exists():
@@ -32,6 +37,8 @@ class Eval:
             # Precompute real image features
             for batch in tqdm(self.val_dataloader, desc="Computing real features", disable= "SLURM_JOB_ID" in os.environ):
                 real_images = batch["img"]
+                real_images = real_images.to(self.fid.device)
+                
                 # Convert from [-1, 1] to [0, 1] range for FID calculation
                 real_images = (real_images + 1.0) / 2.0
                 self.fid.update(real_images, real=True)
