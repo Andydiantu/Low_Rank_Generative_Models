@@ -72,7 +72,7 @@ def create_dataloader(dataset_name, split, config, eval=False, latents=False):
         dataset = preprocess_dataset(dataset, config, split, dataset_name, eval)
     dataloader = torch.utils.data.DataLoader(
         dataset, 
-        batch_size=config.train_batch_size, 
+        batch_size=config.train_batch_size if not eval else config.eval_batch_size, 
         shuffle=True, 
         num_workers=4, 
         pin_memory=True,  
