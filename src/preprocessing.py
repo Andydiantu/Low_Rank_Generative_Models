@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 import torch
 from datasets import load_dataset, Dataset
@@ -57,19 +58,33 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
     dataset.set_transform(
         lambda examples: {
             "img": [tfm(image.convert("RGB")) for image in examples["img"]] if "img" in examples else [tfm(image.convert("RGB")) for image in examples["image"]],
-            # "label": examples["label"] if "label" in examples else None
+            "label": examples["label"] if "label" in examples else None
         }
     )
 
     return dataset
 
 
-def create_dataloader(dataset_name, split, config, eval=False, latents=False):
+def create_dataloader(dataset_name, split, config, eval=False, latents=False, subset_size = None):
     if latents:
         dataset = load_pre_encoded_latents(dataset_name, split)
     else:
         dataset = load_dataset_from_hf(dataset_name, split=split)
         dataset = preprocess_dataset(dataset, config, split, dataset_name, eval)
+    
+    if subset_size is not None:
+        subset_dataset = dataset.train_test_split(test_size=subset_size, seed=42)
+        train_dataset = subset_dataset['train']
+        val_dataset = subset_dataset['test']
+        train_labels = get_labels_from_dataset(train_dataset)
+        val_labels = get_labels_from_dataset(val_dataset)
+
+        print("Train:", Counter(train_labels))
+        print("Val:", Counter(val_labels))
+        dataset = subset_dataset['test']
+        print(f"Subset size: {len(dataset)}")
+
+    
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.train_batch_size if not eval else config.eval_batch_size, 
@@ -92,6 +107,33 @@ def create_lantent_dataloader_celebA(config):
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.train_batch_size, shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=2)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.eval_batch_size, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=2)
     return train_dataloader, val_dataloader
+
+
+def get_labels_from_dataset(dataset):
+    """Extract labels from any dataset type"""
+    labels = []
+    
+    # Try different approaches
+    for i in range(len(dataset)):  # Check first 10 items
+        item = dataset[i]
+        
+        if isinstance(item, dict):
+            if 'label' in item:
+                labels.append(item['label'])
+            elif 'labels' in item:
+                labels.append(item['labels'])
+            elif 'class' in item:
+                labels.append(item['class'])
+        elif isinstance(item, (list, tuple)) and len(item) > 1:
+            # Assuming (data, label) format
+            labels.append(item[1])
+        
+        if i == 0:  # Print structure of first item
+            print(f"Dataset item structure: {type(item)}")
+            if isinstance(item, dict):
+                print(f"Available keys: {list(item.keys())}")
+    
+    return labels
 
 
 if __name__ == "__main__":
