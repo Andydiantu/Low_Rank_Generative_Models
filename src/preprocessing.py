@@ -32,7 +32,7 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
     base_transforms = []
     
     # Add CelebA-specific transforms
-    if "CelebA" in dataset_name or "celeba" in dataset_name.lower() and not latents:
+    if ("CelebA" in dataset_name or "celeba" in dataset_name.lower()) and not latents:
         base_transforms.extend([
             transforms.CenterCrop(178),     # from 178×218 → 178×178
             transforms.Resize(128),          # resize to 128×128
@@ -96,7 +96,7 @@ def create_dataloader(dataset_name, split, config, eval=False, latents=False, su
     )
     return dataloader
 
-def create_lantent_dataloader_celebA(config):
+def create_latent_dataloader_celebA(config):
     dataset = load_pre_encoded_latents("celebA", "train")
     split_dataset = dataset.train_test_split(test_size=0.05, seed=42)
     train_dataset = split_dataset['train']
@@ -137,4 +137,4 @@ def get_labels_from_dataset(dataset):
 
 
 if __name__ == "__main__":
-    create_lantent_dataloader_celebA(TrainingConfig())
+    create_latent_dataloader_celebA(TrainingConfig())
