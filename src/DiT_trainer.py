@@ -43,7 +43,7 @@ class DiTTrainer:
         else:
             galore_params, regular_params = label_low_rank_gradient_layers(self.model)
             param_groups = [{'params': regular_params}, 
-                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 100, 'scale': 0.25, 'proj_type': 'std'}]
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std'}]
             self.optimizer = GaLoreAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -171,28 +171,30 @@ class DiTTrainer:
                     
                     # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
                     # alphas = alphas.view(-1, 1, 1, 1)
-                    # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
+                    # # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
+                    # # print(snr)
                     # snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
-
-                    # snr_weight = (snr / (snr + 1)).detach() 
+                    # gamma  = 5.0
+                    # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
+                    # print(loss_weight)
              
                     
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
-                    # loss = loss * snr_weight
+                    # loss = loss * loss_weight
                     loss = loss.mean()
                     
-                    if self.config.low_rank_pretraining:
-                        ortho_loss = self.config.ortho_loss_weight * sum(
-                            m.orthogonality_loss(rho=0.01)
-                            for m in model.modules() if isinstance(m, LowRankLinear)
-                        )
-                        epoch_ortho_loss += ortho_loss.detach().item()
+                    # if self.config.low_rank_pretraining:
+                    #     ortho_loss = self.config.ortho_loss_weight * sum(
+                    #         m.orthogonality_loss(rho=0.01)
+                    #         for m in model.modules() if isinstance(m, LowRankLinear)
+                    #     )
+                    #     epoch_ortho_loss += ortho_loss.detach().item()
 
-                        frobenius_loss = self.config.frobenius_loss_weight * sum(
-                            m.frobenius_loss()
-                            for m in model.modules() if isinstance(m, LowRankLinear)
-                        )
-                        epoch_frobenius_loss += frobenius_loss.detach().item()
+                    #     frobenius_loss = self.config.frobenius_loss_weight * sum(
+                    #         m.frobenius_loss()
+                    #         for m in model.modules() if isinstance(m, LowRankLinear)
+                    #     )
+                    #     epoch_frobenius_loss += frobenius_loss.detach().item()
 
                     if self.config.nuclear_norm_loss:
                         nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
@@ -206,8 +208,8 @@ class DiTTrainer:
 
                     epoch_train_loss += loss.detach().item()
 
-                    if self.config.low_rank_pretraining:
-                        loss = loss +  frobenius_loss 
+                    # if self.config.low_rank_pretraining:
+                    #     loss = loss +  frobenius_loss 
 
                     accelerator.backward(loss)
 
@@ -428,13 +430,14 @@ class DiTTrainer:
 def main():
 
     config = TrainingConfig()
+    # config = LDConfig()
     print_config(config)
     
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
     validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
 
-    # train_loader = create_dataloader("celebA", "train", config, latents=config.use_latents)
-    # validation_loader = create_dataloader("celebA", "train", config, eval=True, latents=config.use_latents)
+    # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
+    # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
 
     # train_loader, validation_loader = create_lantent_dataloader_celebA(config)
 
@@ -445,9 +448,8 @@ def main():
     print_noise_scheduler_settings(noise_scheduler)
 
     if config.low_rank_pretraining:
-        model = low_rank_layer_replacement(model, rank=config.low_rank_rank)
+        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank)
         print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-
 
     if config.load_pretrained_model:
         path = Path(__file__).parent.parent / config.pretrained_model_path
