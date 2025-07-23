@@ -112,22 +112,51 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
 
     return module
 
-def low_rank_layer_replacement(module, rank):
+# def low_rank_layer_replacement(module, rank):
 
+#     # Replace all Linear layers with LowRankLinear
+#     for name, child in module.named_children():
+#         if isinstance(child, nn.Linear):
+#             new_layer = LowRankLinear(
+#                 child.in_features, 
+#                 child.out_features, 
+#                 rank=rank,
+#                 initialise = True
+#             )
+
+#             setattr(module, name, new_layer)
+
+#         else:
+#             low_rank_layer_replacement(child, rank)
+    
+#     return module
+
+def low_rank_layer_replacement(module, percentage, prefix=""):
     # Replace all Linear layers with LowRankLinear
     for name, child in module.named_children():
-        if isinstance(child, nn.Linear):
+        # Build the full path name
+        full_name = f"{prefix}.{name}" if prefix else name
+        
+        if isinstance(child, nn.Linear) and "transformer_blocks.0.ff.net" not in full_name and "proj_out" not in full_name:
+            print(f"Replacing {full_name} with LowRankLinear")
+            # Calculate original rank of the weight matrix
+            print(f"original weight shape: {child.weight.shape}")
+            original_rank = min(child.in_features, child.out_features)
+            # Calculate new rank as percentage of original rank
+            new_rank = int((child.in_features * child.out_features * percentage) / (child.in_features + child.out_features))
+            new_rank = max(1, new_rank)
+            print(f"original rank: {original_rank}, new rank: {new_rank}")
             new_layer = LowRankLinear(
                 child.in_features, 
                 child.out_features, 
-                rank=rank,
+                rank=new_rank,
                 initialise = True
             )
 
             setattr(module, name, new_layer)
 
         else:
-            low_rank_layer_replacement(child, rank)
+            low_rank_layer_replacement(child, percentage, prefix=full_name)
     
     return module
 
@@ -143,14 +172,14 @@ def label_low_rank_gradient_layers(model):
 
         # TODO: Possible layer selection here
 
-        print('enable GaLore for weights in module: ', module_name)
+        # print('enable GaLore for weights in module: ', module_name)
         galore_params.append(module.weight)
 
     id_galore_params = [id(p) for p in galore_params]
     # make parameters without "rank" to another group
     regular_params = [p for p in model.parameters() if id(p) not in id_galore_params]
 
-    count_parameter_groups(galore_params, regular_params)
+    # count_parameter_groups(galore_params, regular_params)
     return galore_params, regular_params
 
 def count_parameter_groups(galore_params, regular_params):
