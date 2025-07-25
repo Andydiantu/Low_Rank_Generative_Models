@@ -4,15 +4,13 @@ import time
 
 import torch
 import torch.profiler
-from accelerate import Accelerator
-from accelerate.utils import ProjectConfiguration
 from diffusers import DiTPipeline
 from diffusers.optimization import get_cosine_schedule_with_warmup
 from diffusers.training_utils import EMAModel
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
-from galore_torch import GaLoreAdamW
+from galore_torch import GaLoreAdamW, GaLoreEvalAdamW
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
@@ -45,10 +43,15 @@ class DiTTrainer:
                 weight_decay=self.config.weight_decay,
             )
         else:
+            print("Using GaLoreEvalAdamW")
             galore_params, regular_params = label_low_rank_gradient_layers(self.model)
-            param_groups = [{'params': regular_params}, 
-                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std'}]
-            self.optimizer = GaLoreAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
+            param_to_name = {param: name for name, param in self.model.named_parameters()}
+            regular_param_names = [param_to_name[p] for p in regular_params]
+            galore_param_names = [param_to_name[p] for p in galore_params]
+
+            param_groups = [{'params': regular_params, 'param_names': regular_param_names}, 
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std', 'param_names': galore_param_names}]
+            self.optimizer = GaLoreEvalAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer=self.optimizer,
@@ -72,31 +75,36 @@ class DiTTrainer:
 
     def train_loop(self):
         logging_dir = os.path.join(self.config.output_dir, "logs")
-        accelerator_project_config = ProjectConfiguration(
-            project_dir=self.config.output_dir, logging_dir=logging_dir
-        )
-        accelerator = Accelerator(
-            # mixed_precision=self.config.mixed_precision,
-            gradient_accumulation_steps=self.config.gradient_accumulation_steps,
-            log_with="tensorboard",
-            project_config=accelerator_project_config,
-        )
-        if accelerator.is_main_process:
-            os.makedirs(self.config.output_dir, exist_ok=True)
-            accelerator.init_trackers("train_example")
+        # accelerator_project_config = ProjectConfiguration(
+        #     project_dir=self.config.output_dir, logging_dir=logging_dir
+        # )
+        # accelerator = Accelerator(
+        #     # mixed_precision=self.config.mixed_precision,
+        #     gradient_accumulation_steps=self.config.gradient_accumulation_steps,
+        #     log_with="tensorboard",
+        #     project_config=accelerator_project_config,
+        # )
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
 
-        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model, validation_dataloader = accelerator.prepare(
-            self.model,
+        if torch.cuda.is_available():
+            os.makedirs(self.config.output_dir, exist_ok=True)
+            # accelerator.init_trackers("train_example")
+
+        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model, validation_dataloader = (
+            self.model.to(device),
             self.optimizer,
             self.train_dataloader,
             self.lr_scheduler,
-            self.vae,
+            self.vae.to(device),
             self.ema_model,
             self.validation_dataloader
-        )  
+        )
 
         # Manually move ema_model to the correct device
-        ema_model.to(accelerator.device) 
+        ema_model.to(device) 
 
         global_step = 0
 
@@ -115,7 +123,7 @@ class DiTTrainer:
             epoch_nuclear_norm_loss = 0.0
             epoch_frobenius_norm_loss = 0.0
             for step, batch in enumerate(train_dataloader):
-                clean_images = batch["img"]
+                clean_images = batch["img"].to(device)
                 if self.config.vae and not self.config.use_latents:
                     with torch.no_grad():
                         latents = self.vae.encode(clean_images)
@@ -165,82 +173,97 @@ class DiTTrainer:
                 # Add noise to the clean images according to the noise magnitude at each timestep
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-                with accelerator.accumulate(model):
-                    # with torch.profiler.profile(
-                    #     activities=[torch.profiler.ProfilerActivity.CPU,
-                    #                 torch.profiler.ProfilerActivity.CUDA],
-                    #     profile_memory=True,
-                    #     record_shapes=True
-                    # ) as prof:
+                optimizer.zero_grad()
+                # with torch.profiler.profile(
+                #     activities=[torch.profiler.ProfilerActivity.CPU,
+                #                 torch.profiler.ProfilerActivity.CUDA],
+                #     profile_memory=True,
+                #     record_shapes=True
+                # ) as prof:
 
-                    #     # Predict the noise residual
-                    noise_pred = model(
-                        noisy_images, timesteps, class_labels_input, return_dict=False
-                    )[0]
-                    # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+                #     # Predict the noise residual
+                noise_pred = model(
+                    noisy_images, timesteps, class_labels_input, return_dict=False
+                )[0]
+                # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
                         
 
                     
-                    # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
-                    # alphas = alphas.view(-1, 1, 1, 1)
-                    # # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
-                    # # print(snr)
-                    # snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
-                    # gamma  = 5.0
-                    # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
-                    # print(loss_weight)
+                # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
+                # alphas = alphas.view(-1, 1, 1, 1)
+                # # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
+                # # print(snr)
+                # snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
+                # gamma  = 5.0
+                # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
+                # print(loss_weight)
              
                     
-                    loss = F.mse_loss(noise_pred, noise, reduction="none")
-                    # loss = loss * loss_weight
-                    loss = loss.mean()
+                loss = F.mse_loss(noise_pred, noise, reduction="none")
+                # loss = loss * loss_weight
+                loss = loss.mean()
 
-                    if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
-                        
-                        if self.training_monitor(loss):
-                            if self.config.low_rank_gradient:
-                                self.optimizer.reset_projection_matrices()
-                                print("Resetting projection matrices")
-                            print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                            print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")
+                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
+                    
+                    if self.training_monitor(loss):
+                        if self.config.low_rank_gradient:
+                            self.optimizer.reset_projection_matrices()
+                            print("Resetting projection matrices")
+                        print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                        print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")
 
+         
+                    
+                # if self.config.low_rank_pretraining:
+                #     ortho_loss = self.config.ortho_loss_weight * sum(
+                #         m.orthogonality_loss(rho=0.01)
+                #         for m in model.modules() if isinstance(m, LowRankLinear)
+                #     )
+                #     epoch_ortho_loss += ortho_loss.detach().item()
 
+                #     frobenius_loss = self.config.frobenius_loss_weight * sum(
+                #         m.frobenius_loss()
+                #         for m in model.modules() if isinstance(m, LowRankLinear)
+                #     )
+                #     epoch_frobenius_loss += frobenius_loss.detach().item()
 
-                    # if self.config.low_rank_pretraining:
-                    #     ortho_loss = self.config.ortho_loss_weight * sum(
-                    #         m.orthogonality_loss(rho=0.01)
-                    #         for m in model.modules() if isinstance(m, LowRankLinear)
-                    #     )
-                    #     epoch_ortho_loss += ortho_loss.detach().item()
+                if self.config.nuclear_norm_loss:
+                    nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
+                    loss = loss + nuclear_norm_loss
+                    epoch_nuclear_norm_loss += nuclear_norm_loss.detach().item()
 
-                    #     frobenius_loss = self.config.frobenius_loss_weight * sum(
-                    #         m.frobenius_loss()
-                    #         for m in model.modules() if isinstance(m, LowRankLinear)
-                    #     )
-                    #     epoch_frobenius_loss += frobenius_loss.detach().item()
+                if self.config.frobenius_norm_loss:
+                    frobenius_norm_loss = self.config.frobenius_norm_loss_weight * (frobenius_norm(model) ** 2) 
+                    loss = loss + frobenius_norm_loss
+                    epoch_frobenius_norm_loss += frobenius_norm_loss.detach().item()
 
-                    if self.config.nuclear_norm_loss:
-                        nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
-                        loss = loss + nuclear_norm_loss
-                        epoch_nuclear_norm_loss += nuclear_norm_loss.detach().item()
+                epoch_train_loss += loss.detach().item()
 
-                    if self.config.frobenius_norm_loss:
-                        frobenius_norm_loss = self.config.frobenius_norm_loss_weight * (frobenius_norm(model) ** 2) 
-                        loss = loss + frobenius_norm_loss
-                        epoch_frobenius_norm_loss += frobenius_norm_loss.detach().item()
+                # if self.config.low_rank_pretraining:
+                #     loss = loss +  frobenius_loss 
 
-                    epoch_train_loss += loss.detach().item()
+                loss.backward()
 
-                    # if self.config.low_rank_pretraining:
-                    #     loss = loss +  frobenius_loss 
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
 
-                    accelerator.backward(loss)
+                # Calculate and print average gradient norm
+                total_norm = 0.0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
 
-                    accelerator.clip_grad_norm_(model.parameters(), 5.0)
-                    optimizer.step()
-                    lr_scheduler.step()
-                    ema_model.step(model.parameters())
-                    optimizer.zero_grad()
+                print(f"total gradient norm: {total_norm:.6f}")
+
+                optimizer.step()
+                lr_scheduler.step()
+                ema_model.step(model.parameters())
+
+                # total_projection_loss = 0.0
+                # for param_name, (err_F, err_cos) in projection_loss_dict.items():
+                #     total_projection_loss += err_F
+                # print(f"total projection loss: {total_projection_loss:.6f}")
+
 
 
                 progress_bar.update(1)
@@ -253,7 +276,7 @@ class DiTTrainer:
                 }
                 
                 progress_bar.set_postfix(**logs)
-                accelerator.log(logs, step=global_step)
+                # accelerator.log(logs, step=global_step)
                 global_step += 1
 
             avg_epoch_train_loss = epoch_train_loss / len(train_dataloader)
@@ -271,13 +294,13 @@ class DiTTrainer:
                       (f" | frobenius_norm_loss: {avg_epoch_frobenius_norm_loss:.4f}" if self.config.frobenius_norm_loss else ""))                
             
             # After each epoch you optionally sample some demo images with evaluate() and save the model
-            if accelerator.is_main_process:
+            if torch.cuda.is_available():
 
                 if (epoch + 1) % self.config.validation_epochs == 0:
-                    EMA_val_loss = self.validation_loss(accelerator, model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = True)
+                    EMA_val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = True)
                     self.ema_val_loss_history.append(EMA_val_loss)
 
-                    val_loss = self.validation_loss(accelerator, model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False)
+                    val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False)
                     self.val_loss_history.append(val_loss)
 
                     plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, save_path=os.path.join(self.config.output_dir, "loss_curves.pdf"))
@@ -298,7 +321,7 @@ class DiTTrainer:
                         model.eval()
                         
                         pipeline = DiTPipeline(
-                            transformer=accelerator.unwrap_model(model),
+                            transformer=model,
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
@@ -369,85 +392,89 @@ class DiTTrainer:
         print(f"FID Score: {fid_score} \n")
         del pipeline
 
-    def validation_loss(self, accelerator, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False):
-        if accelerator.is_main_process:
-            if EMA:
-                ema_model.store(model.parameters())
-                ema_model.copy_to(model.parameters())
-            model.eval()
+    def validation_loss(self, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False):
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+            
+        if EMA:
+            ema_model.store(model.parameters())
+            ema_model.copy_to(model.parameters())
+        model.eval()
 
-            val_loss_epoch = 0
-            val_progress_bar = tqdm(
-                    total=len(validation_dataloader),
-                    disable="SLURM_JOB_ID" in os.environ,
-                    dynamic_ncols=True,
-                    leave=False
-                )
-            val_progress_bar.set_description(f"Epoch {epoch} - Validation")
+        val_loss_epoch = 0
+        val_progress_bar = tqdm(
+                total=len(validation_dataloader),
+                disable="SLURM_JOB_ID" in os.environ,
+                dynamic_ncols=True,
+                leave=False
+            )
+        val_progress_bar.set_description(f"Epoch {epoch} - Validation")
 
-            with torch.no_grad():
-                for val_step, val_batch in enumerate(validation_dataloader):
-                    clean_images = val_batch["img"]
-                    if self.config.vae and not self.config.use_latents:
-                        with torch.no_grad():
-                            latents = self.vae.encode(clean_images)
-                    else:
-                        latents = clean_images
-                    # Sample noise to add to the images
-                    noise = torch.randn(latents.shape).to(latents.device)
-                    batch_size = latents.shape[0]
+        with torch.no_grad():
+            for val_step, val_batch in enumerate(validation_dataloader):
+                clean_images = val_batch["img"].to(device)
+                if self.config.vae and not self.config.use_latents:
+                    with torch.no_grad():
+                        latents = self.vae.encode(clean_images)
+                else:
+                    latents = clean_images
+                # Sample noise to add to the images
+                noise = torch.randn(latents.shape).to(latents.device)
+                batch_size = latents.shape[0]
 
-                    timesteps = torch.randint(
-                        0,
-                        self.noise_scheduler.config.num_train_timesteps,
-                        (batch_size,),
-                        device=clean_images.device,
-                    ).long()
+                timesteps = torch.randint(
+                    0,
+                    self.noise_scheduler.config.num_train_timesteps,
+                    (batch_size,),
+                    device=clean_images.device,
+                ).long()
 
-                    class_labels = None
-                    if "label" in val_batch:
-                        class_labels = val_batch["label"].to(latents.device)
-                    else:
-                        class_labels = torch.zeros(batch_size, dtype=torch.long, device=latents.device)
-                        
-                    if self.config.cfg_enabled:
-                        keep_mask = torch.rand(batch_size, device=latents.device) > self.config.unconditional_prob
-                        class_labels_input = class_labels.clone()
-                        class_labels_input = torch.where(
-                            keep_mask,
-                            class_labels_input,
-                            torch.full_like(class_labels_input, fill_value=1000)
-                        )
-                    else: 
-                        class_labels_input = class_labels
+                class_labels = None
+                if "label" in val_batch:
+                    class_labels = val_batch["label"].to(latents.device)
+                else:
+                    class_labels = torch.zeros(batch_size, dtype=torch.long, device=latents.device)
+                    
+                if self.config.cfg_enabled:
+                    keep_mask = torch.rand(batch_size, device=latents.device) > self.config.unconditional_prob
+                    class_labels_input = class_labels.clone()
+                    class_labels_input = torch.where(
+                        keep_mask,
+                        class_labels_input,
+                        torch.full_like(class_labels_input, fill_value=1000)
+                    )
+                else: 
+                    class_labels_input = class_labels
 
-                    noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
+                noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-                    noise_pred = model(
-                        noisy_images, timesteps, class_labels_input, return_dict=False
-                    )[0]
+                noise_pred = model(
+                    noisy_images, timesteps, class_labels_input, return_dict=False
+                )[0]
 
-                    val_loss = F.mse_loss(noise_pred, noise, reduction="none")
-                    val_loss = val_loss.mean()
+                val_loss = F.mse_loss(noise_pred, noise, reduction="none")
+                val_loss = val_loss.mean()
 
-                    val_progress_bar.update(1)
-                    logs = {
-                        "loss": val_loss.detach().item(),
-                    }
-                    val_progress_bar.set_postfix(**logs)
-                    val_loss_epoch += val_loss.detach().item()
-            avg_val_loss = val_loss_epoch / len(validation_dataloader)
-            accelerator.log({"val_loss": avg_val_loss}, step=global_step)
-            val_progress_bar.close()
-            if EMA:
-                ema_model.restore(model.parameters())
-            model.train()
+                val_progress_bar.update(1)
+                logs = {
+                    "loss": val_loss.detach().item(),
+                }
+                val_progress_bar.set_postfix(**logs)
+                val_loss_epoch += val_loss.detach().item()
+        avg_val_loss = val_loss_epoch / len(validation_dataloader)
+        # accelerator.log({"val_loss": avg_val_loss}, step=global_step)
+        val_progress_bar.close()
+        if EMA:
+            ema_model.restore(model.parameters())
+        model.train()
 
 
-            if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}\n")
+        if "SLURM_JOB_ID" in os.environ:
+            print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}\n")
 
-            return avg_val_loss
+        return avg_val_loss
 
 
 def main():
