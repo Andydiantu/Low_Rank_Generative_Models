@@ -13,13 +13,14 @@ from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW
-
+from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
 from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm
+
 
 
 class DiTTrainer:
@@ -33,6 +34,9 @@ class DiTTrainer:
         self.val_loss_history = []
         self.ema_val_loss_history = []
         self.eval = Eval(train_dataloader , config)
+
+        if config.curriculum_learning:
+            self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups)
 
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
@@ -122,12 +126,20 @@ class DiTTrainer:
                 batch_size = latents.shape[0]
 
                 # Sample a random timestep for each image
-                timesteps = torch.randint(
-                    0,
-                    self.noise_scheduler.config.num_train_timesteps,
-                    (batch_size,),
-                    device=clean_images.device,
-                ).long()
+                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
+                    timesteps = torch.randint(
+                        self.training_monitor.get_current_timestep_groups_low_bound(),
+                        self.noise_scheduler.config.num_train_timesteps,
+                        (batch_size,),
+                        device=clean_images.device,
+                    ).long()
+                else:
+                    timesteps = torch.randint(
+                        0,
+                        self.noise_scheduler.config.num_train_timesteps,
+                        (batch_size,),
+                        device=clean_images.device,
+                    ).long()
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
@@ -182,7 +194,18 @@ class DiTTrainer:
                     loss = F.mse_loss(noise_pred, noise, reduction="none")
                     # loss = loss * loss_weight
                     loss = loss.mean()
-                    
+
+                    if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
+                        
+                        if self.training_monitor(loss):
+                            if self.config.low_rank_gradient:
+                                self.optimizer.reset_projection_matrices()
+                                print("Resetting projection matrices")
+                            print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                            print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")
+
+
+
                     # if self.config.low_rank_pretraining:
                     #     ortho_loss = self.config.ortho_loss_weight * sum(
                     #         m.orthogonality_loss(rho=0.01)
