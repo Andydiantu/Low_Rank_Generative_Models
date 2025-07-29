@@ -11,6 +11,7 @@ from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW, GaLoreEvalAdamW
+import matplotlib.pyplot as plt
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
@@ -33,6 +34,8 @@ class DiTTrainer:
         self.ema_val_loss_history = []
         self.eval = Eval(train_dataloader , config)
 
+        self.projection_loss_history = []
+
         if config.curriculum_learning:
             self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups)
 
@@ -50,7 +53,7 @@ class DiTTrainer:
             galore_param_names = [param_to_name[p] for p in galore_params]
 
             param_groups = [{'params': regular_params, 'param_names': regular_param_names}, 
-                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 0.25, 'proj_type': 'std', 'param_names': galore_param_names}]
+                            {'params': galore_params, 'rank': self.config.low_rank_gradient_rank, 'update_proj_gap': 200, 'scale': 1, 'proj_type': 'std', 'param_names': galore_param_names}]
             self.optimizer = GaLoreEvalAdamW(param_groups, lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
         self.lr_scheduler = get_cosine_schedule_with_warmup(
@@ -122,6 +125,7 @@ class DiTTrainer:
             epoch_frobenius_loss = 0.0
             epoch_nuclear_norm_loss = 0.0
             epoch_frobenius_norm_loss = 0.0
+            epoch_projection_loss = 0.0
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"].to(device)
                 if self.config.vae and not self.config.use_latents:
@@ -141,6 +145,7 @@ class DiTTrainer:
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
+                    # print(f"sample timesteps from {self.training_monitor.get_current_timestep_groups_low_bound()} to { self.noise_scheduler.config.num_train_timesteps,}")
                 else:
                     timesteps = torch.randint(
                         0,
@@ -148,6 +153,7 @@ class DiTTrainer:
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
+
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
@@ -202,17 +208,6 @@ class DiTTrainer:
                 loss = F.mse_loss(noise_pred, noise, reduction="none")
                 # loss = loss * loss_weight
                 loss = loss.mean()
-
-                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
-                    
-                    if self.training_monitor(loss):
-                        if self.config.low_rank_gradient:
-                            self.optimizer.reset_projection_matrices()
-                            print("Resetting projection matrices")
-                        print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                        print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")
-
-         
                     
                 # if self.config.low_rank_pretraining:
                 #     ortho_loss = self.config.ortho_loss_weight * sum(
@@ -246,16 +241,33 @@ class DiTTrainer:
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
 
-                # Calculate and print average gradient norm
-                total_norm = 0.0
-                for p in model.parameters():
-                    if p.grad is not None:
-                        param_norm = p.grad.data.norm(2)
-                        total_norm += param_norm.item() ** 2
+                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
 
-                print(f"total gradient norm: {total_norm:.6f}")
+                        total_norm = 0.0
 
-                optimizer.step()
+                        for p in model.parameters():
+                            if p.grad is not None:
+                                param_norm = p.grad.data.norm(2)
+                                total_norm += param_norm.item() ** 2
+
+                        if self.training_monitor(total_norm):
+                            if self.config.low_rank_gradient:
+                                self.optimizer.reset_projection_matrices()
+                                print("Resetting projection matrices")
+                            print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                            print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")                    
+
+
+
+                _, projection_loss_dict = optimizer.step()
+                total_projection_loss = 0.0
+                num_layer_count = 0
+                for param_name, (err_F, err_cos) in projection_loss_dict.items():
+                    total_projection_loss += err_F
+                    num_layer_count += 1
+
+                # print(f"average projection loss: {total_projection_loss.detach().cpu() / num_layer_count:.6f}")
+                epoch_projection_loss += total_projection_loss / num_layer_count
                 lr_scheduler.step()
                 ema_model.step(model.parameters())
 
@@ -285,6 +297,9 @@ class DiTTrainer:
             avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
             avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
             self.train_loss_history.append(avg_epoch_train_loss)
+            self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
+            torch.save(self.projection_loss_history, os.path.join(self.config.output_dir, "projection_loss_history.pt"))
+            self.plot_projection_loss()
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
@@ -369,6 +384,23 @@ class DiTTrainer:
         for i, image in enumerate(images):
             grid.paste(image, box=(i % cols * w, i // cols * h))
         return grid
+
+    def plot_projection_loss(self):
+        """Plot and save the projection loss progression."""
+        if not self.projection_loss_history:
+            return
+            
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.projection_loss_history)
+        plt.title('Projection Loss Progression')
+        plt.xlabel('Training Step')
+        plt.ylabel('Projection Loss')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        save_path = os.path.join(self.config.output_dir, "projection_loss_plot.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()  # Close the figure to free memory
 
     def evaluate(self, config, epoch, pipeline):
 
