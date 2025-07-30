@@ -6,7 +6,7 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 128
+    train_batch_size: int = 256
     eval_batch_size: int = 16
     num_epochs: int = 3000
     latent_channels: int = 4

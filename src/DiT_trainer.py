@@ -12,6 +12,7 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW, GaLoreEvalAdamW
 import matplotlib.pyplot as plt
+import numpy as np
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
@@ -35,6 +36,11 @@ class DiTTrainer:
         self.eval = Eval(train_dataloader , config)
 
         self.projection_loss_history = []
+        
+        # Add gradient variance tracking - per epoch approach
+        self.epoch_gradient_norms = []  # Store gradient norms for current epoch
+        self.epoch_avg_gradient_norms = []  # Store average gradient norm per epoch
+        self.epoch_gradient_variances = []  # Store gradient variance per epoch
 
         if config.curriculum_learning:
             self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups)
@@ -112,6 +118,9 @@ class DiTTrainer:
         global_step = 0
 
         for epoch in range(self.config.num_epochs):
+            # Reset epoch gradient norms for the new epoch
+            self.epoch_gradient_norms = []
+            
             progress_bar = tqdm(
                 total=len(self.train_dataloader),
                 disable= "SLURM_JOB_ID" in os.environ, 
@@ -139,13 +148,36 @@ class DiTTrainer:
 
                 # Sample a random timestep for each image
                 if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
-                    timesteps = torch.randint(
-                        self.training_monitor.get_current_timestep_groups_low_bound(),
-                        self.noise_scheduler.config.num_train_timesteps,
-                        (batch_size,),
+                    # Split batch in half: first half samples from [low_bound, high_bound], 
+                    # second half samples from [high_bound, num_train_timesteps]
+                    low_bound = self.training_monitor.get_current_timestep_groups_low_bound()
+                    high_bound = self.training_monitor.get_current_timestep_groups_high_bound()
+                    
+                    half_batch = batch_size // 2
+                    remaining_batch = batch_size - half_batch
+                    
+                    # First half: sample from [low_bound, high_bound]
+                    timesteps_first_half = torch.randint(
+                        low_bound,
+                        high_bound,
+                        (half_batch,),
                         device=clean_images.device,
                     ).long()
-                    # print(f"sample timesteps from {self.training_monitor.get_current_timestep_groups_low_bound()} to { self.noise_scheduler.config.num_train_timesteps,}")
+                    
+                    if not high_bound == self.noise_scheduler.config.num_train_timesteps:
+                        # Second half: sample from [high_bound, num_train_timesteps]
+                        timesteps_second_half = torch.randint(
+                            high_bound,
+                            self.noise_scheduler.config.num_train_timesteps,
+                            (remaining_batch,),
+                            device=clean_images.device,
+                        ).long()
+
+                        timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
+                    else:
+                        timesteps = torch.cat([timesteps_first_half, timesteps_first_half], dim=0)
+                    
+                   
                 else:
                     timesteps = torch.randint(
                         0,
@@ -153,7 +185,6 @@ class DiTTrainer:
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
-
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
@@ -241,22 +272,17 @@ class DiTTrainer:
 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
 
-                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
-
-                        total_norm = 0.0
-
-                        for p in model.parameters():
-                            if p.grad is not None:
-                                param_norm = p.grad.data.norm(2)
-                                total_norm += param_norm.item() ** 2
-
-                        if self.training_monitor(total_norm):
-                            if self.config.low_rank_gradient:
-                                self.optimizer.reset_projection_matrices()
-                                print("Resetting projection matrices")
-                            print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                            print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")                    
-
+                # Calculate gradient norm for variance tracking (always, not just for curriculum learning)
+                total_norm = 0.0
+                for p in model.parameters():
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                
+                total_norm = total_norm ** 0.5  # Convert to L2 norm
+                
+                # Update gradient norms sliding window
+                self.epoch_gradient_norms.append(total_norm)
 
 
                 _, projection_loss_dict = optimizer.step()
@@ -283,8 +309,9 @@ class DiTTrainer:
                     "loss": loss.detach().item(),
                     "lr": lr_scheduler.get_last_lr()[0],
                     "step": global_step,
-                    "nuclear_norm_loss": nuclear_norm_loss.detach().item() if self.config.nuclear_norm_loss else 0,
-                    "frobenius_norm_loss": f"{frobenius_norm_loss.detach().item():.6f}" if self.config.frobenius_norm_loss else 0,
+                    # "nuclear_norm_loss": nuclear_norm_loss.detach().item() if self.config.nuclear_norm_loss else 0,
+                    # "frobenius_norm_loss": f"{frobenius_norm_loss.detach().item():.6f}" if self.config.frobenius_norm_loss else 0,
+                    "grad_norm": f"{total_norm:.6f}",
                 }
                 
                 progress_bar.set_postfix(**logs)
@@ -300,13 +327,42 @@ class DiTTrainer:
             self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
             torch.save(self.projection_loss_history, os.path.join(self.config.output_dir, "projection_loss_history.pt"))
             self.plot_projection_loss()
+            
+            # Save and plot gradient variance history
+            # Calculate average gradient norm for the epoch
+            if self.epoch_gradient_norms:
+                avg_gradient_norm = np.mean(self.epoch_gradient_norms)
+                self.epoch_avg_gradient_norms.append(avg_gradient_norm)
+                # Calculate variance for the epoch
+                if len(self.epoch_gradient_norms) > 1:
+                    current_gradient_variance = np.var(self.epoch_gradient_norms)
+                    self.epoch_gradient_variances.append(current_gradient_variance)
+                else:
+                    self.epoch_gradient_variances.append(0.0) # No variance if only one sample
+
+            torch.save(self.epoch_gradient_variances, os.path.join(self.config.output_dir, "gradient_variance_history.pt"))
+            torch.save(self.epoch_avg_gradient_norms, os.path.join(self.config.output_dir, "gradient_norms_history.pt"))
+            self.plot_gradient_statistics()
+
+            if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0 and epoch % 2 == 0:
+                val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = self.training_monitor.get_current_timestep_groups_low_bound(), timestep_upper_bound = self.training_monitor.get_current_timestep_groups_high_bound())
+                print(f"Validation loss: {val_loss}")
+                if self.training_monitor(val_loss):
+                    if self.config.low_rank_gradient:
+                        self.optimizer.reset_projection_matrices()
+                        print("Resetting projection matrices")
+                    print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                    print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")                    
+
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
                 print(f"Epoch {epoch} completed | loss: {avg_epoch_train_loss:.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
-                      (f" | ortho_loss: {avg_epoch_ortho_loss:.4f} | frobenius_loss: {avg_epoch_frobenius_loss:.4f}" if self.config.low_rank_pretraining else "") + 
-                      (f" | nuclear_norm_loss: {avg_epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else "") +
-                      (f" | frobenius_norm_loss: {avg_epoch_frobenius_norm_loss:.4f}" if self.config.frobenius_norm_loss else ""))                
+                    #   (f" | ortho_loss: {avg_epoch_ortho_loss:.4f} | frobenius_loss: {avg_epoch_frobenius_loss:.4f}" if self.config.low_rank_pretraining else "") + 
+                    #   (f" | nuclear_norm_loss: {avg_epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else "") +
+                    #   (f" | frobenius_norm_loss: {avg_epoch_frobenius_norm_loss:.4f}" if self.config.frobenius_norm_loss else "") +
+                      (f" | grad_var: {self.epoch_gradient_variances[-1]:.6f}" if self.epoch_gradient_variances else "") +
+                      (f" | grad_norm: {self.epoch_avg_gradient_norms[-1]:.6f}" if self.epoch_avg_gradient_norms else ""))                
             
             # After each epoch you optionally sample some demo images with evaluate() and save the model
             if torch.cuda.is_available():
@@ -402,6 +458,34 @@ class DiTTrainer:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()  # Close the figure to free memory
 
+    def plot_gradient_statistics(self):
+        """Plot gradient norms and variance in a combined figure."""
+        if not self.epoch_gradient_variances or not self.epoch_avg_gradient_norms:
+            return
+            
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        
+        # Plot average gradient norms per epoch
+        ax1.plot(self.epoch_avg_gradient_norms)
+        ax1.set_title('Average Gradient Norm Per Epoch')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Average Gradient Norm')
+        ax1.set_yscale('log')
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot gradient variance per epoch
+        ax2.plot(self.epoch_gradient_variances)
+        ax2.set_title('Gradient Variance Per Epoch')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Gradient Variance')
+        ax2.set_yscale('log')
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        save_path = os.path.join(self.config.output_dir, "gradient_statistics_plot.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()  # Close the figure to free memory
+
     def evaluate(self, config, epoch, pipeline):
 
         # Sample some images from random noise (this is the backward diffusion process).
@@ -424,7 +508,7 @@ class DiTTrainer:
         print(f"FID Score: {fid_score} \n")
         del pipeline
 
-    def validation_loss(self, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False):
+    def validation_loss(self, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False, timestep_lower_bound = 0, timestep_upper_bound = 1000):
         if torch.cuda.is_available():
             device = torch.device("cuda")
         else:
@@ -457,8 +541,8 @@ class DiTTrainer:
                 batch_size = latents.shape[0]
 
                 timesteps = torch.randint(
-                    0,
-                    self.noise_scheduler.config.num_train_timesteps,
+                    timestep_lower_bound,
+                    timestep_upper_bound,
                     (batch_size,),
                     device=clean_images.device,
                 ).long()
@@ -516,7 +600,7 @@ def main():
     print_config(config)
     
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
