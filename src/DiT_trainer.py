@@ -219,9 +219,13 @@ class DiTTrainer:
                 # ) as prof:
 
                 #     # Predict the noise residual
-                noise_pred = model(
+                pred = model(
                     noisy_images, timesteps, class_labels_input, return_dict=False
                 )[0]
+                if self.config.prediction_type == "epsilon":
+                    target = noise
+                elif self.config.prediction_type == "v_prediction":
+                    target = self.noise_scheduler.get_velocity(latents, noise, timesteps)
                 # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
                         
 
@@ -235,8 +239,7 @@ class DiTTrainer:
                 # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
                 # print(loss_weight)
              
-                    
-                loss = F.mse_loss(noise_pred, noise, reduction="none")
+                loss = F.mse_loss(pred, target, reduction="none")
                 # loss = loss * loss_weight
                 loss = loss.mean()
                     
@@ -284,16 +287,20 @@ class DiTTrainer:
                 # Update gradient norms sliding window
                 self.epoch_gradient_norms.append(total_norm)
 
+                if self.config.low_rank_gradient:
+                    _, projection_loss_dict = optimizer.step()
+                    total_projection_loss = 0.0
+                    num_layer_count = 0
+                    for param_name, (err_F, err_cos) in projection_loss_dict.items():
+                        total_projection_loss += err_F
+                        num_layer_count += 1
 
-                _, projection_loss_dict = optimizer.step()
-                total_projection_loss = 0.0
-                num_layer_count = 0
-                for param_name, (err_F, err_cos) in projection_loss_dict.items():
-                    total_projection_loss += err_F
-                    num_layer_count += 1
+                    # print(f"average projection loss: {total_projection_loss.detach().cpu() / num_layer_count:.6f}")
+                    epoch_projection_loss += total_projection_loss / num_layer_count
+                else:
+                    optimizer.step()
 
-                # print(f"average projection loss: {total_projection_loss.detach().cpu() / num_layer_count:.6f}")
-                epoch_projection_loss += total_projection_loss / num_layer_count
+                
                 lr_scheduler.step()
                 ema_model.step(model.parameters())
 
@@ -324,7 +331,8 @@ class DiTTrainer:
             avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
             avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
             self.train_loss_history.append(avg_epoch_train_loss)
-            self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
+            if self.config.low_rank_gradient:
+                self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
             torch.save(self.projection_loss_history, os.path.join(self.config.output_dir, "projection_loss_history.pt"))
             self.plot_projection_loss()
             
@@ -382,7 +390,7 @@ class DiTTrainer:
                     or epoch == self.config.num_epochs - 1
                 ):
                     # Create pipeline with memory optimizations with autocast
-                    with torch.amp.autocast(device_type="cuda", enabled=True):
+                    with torch.amp.autocast(device_type="cuda", enabled=False):
                         # Store original model parameters before applying EMA weights
                         original_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                         
@@ -566,11 +574,15 @@ class DiTTrainer:
 
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
-                noise_pred = model(
+                pred = model(
                     noisy_images, timesteps, class_labels_input, return_dict=False
                 )[0]
+                if self.config.prediction_type == "epsilon":
+                    target = noise
+                elif self.config.prediction_type == "v_prediction":
+                    target = self.noise_scheduler.get_velocity(latents, noise, timesteps) 
 
-                val_loss = F.mse_loss(noise_pred, noise, reduction="none")
+                val_loss = F.mse_loss(pred, target, reduction="none")
                 val_loss = val_loss.mean()
 
                 val_progress_bar.update(1)

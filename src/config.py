@@ -6,23 +6,24 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 256
+    train_batch_size: int = 64
     eval_batch_size: int = 16
     num_epochs: int = 3000
+    prediction_type: str = "epsilon"
     latent_channels: int = 4
     pixel_channels: int = 3
     gradient_accumulation_steps: int = 1
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
     lr_warmup_steps: int = 3000
-    validation_epochs: int = 50
-    save_image_epochs: int = 50
-    save_model_epochs: int = 50
-    evaluate_fid_epochs: int = 150
-    # validation_epochs: int = 1 # for testing
-    # save_image_epochs: int = 1 # for testing
-    # save_model_epochs: int = 1 # for testing
-    # evaluate_fid_epochs: int = 2 # for testing
+    # validation_epochs: int = 50
+    # save_image_epochs: int = 50
+    # save_model_epochs: int = 50
+    # evaluate_fid_epochs: int = 150
+    validation_epochs: int = 1 # for testing
+    save_image_epochs: int = 1 # for testing
+    save_model_epochs: int = 1 # for testing
+    evaluate_fid_epochs: int = 1 # for testing
     eval_dataset_size: int = 1024
     noise_scheduler: str = "DDIM"
     num_training_steps: int = 1000
@@ -39,15 +40,14 @@ class TrainingConfig:
     frobenius_norm_loss_weight: float = 1e-6
     low_rank_rank: int = 32
     low_rank_compression: bool = False
-    low_rank_gradient: bool = True
+    low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 128
-    curriculum_learning: bool = True
-    curriculum_learning_patience: int = 200
+    curriculum_learning: bool = False
+    curriculum_learning_patience: int = 5
     curriculum_learning_timestep_num_groups: int = 10
-
     real_features_path: str = "data/fid_features/CIFAR10_train_features.pt"
     load_pretrained_model: bool = False
-    pretrained_model_path: Optional[str] = "logs/DiT20250616_010858/model_0149.pt"
+    pretrained_model_path: Optional[str] = "logs/DiT20250801_173806/model_0089.pt"
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = False
     use_latents: bool = False

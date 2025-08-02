@@ -21,14 +21,14 @@ def create_noise_scheduler(config):
             num_train_timesteps=config.num_training_steps, 
             beta_schedule="squaredcos_cap_v2", 
             clip_sample=True,
-            prediction_type="epsilon",
+            prediction_type=config.prediction_type,
         )
     elif config.noise_scheduler == "DDIM":
         noise_scheduler = DDIMScheduler(
             num_train_timesteps=config.num_training_steps, 
             beta_schedule="squaredcos_cap_v2", 
             clip_sample=True,
-            prediction_type="epsilon",
+            prediction_type=config.prediction_type,
         )
 
     return noise_scheduler
