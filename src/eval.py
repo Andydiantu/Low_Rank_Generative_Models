@@ -71,6 +71,7 @@ class Eval:
             
             generated_images = torch.tensor(images)
             generated_images = generated_images.permute(0, 3, 1, 2)
+            generated_images = generated_images.to(device=self.fid.device, dtype=next(self.fid.inception.parameters()).dtype)
             self.fid.update(generated_images, real=False)
             
         fid_score = self.fid.compute()

@@ -390,7 +390,7 @@ class DiTTrainer:
                     or epoch == self.config.num_epochs - 1
                 ):
                     # Create pipeline with memory optimizations with autocast
-                    with torch.amp.autocast(device_type="cuda", enabled=False):
+                    with torch.amp.autocast(device_type="cuda", enabled=True):
                         # Store original model parameters before applying EMA weights
                         original_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                         
