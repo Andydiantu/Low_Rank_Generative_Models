@@ -10,6 +10,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 from PIL import Image
 import time
+import heapq
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,7 +52,7 @@ class CelebADataset(torch.utils.data.Dataset):
 
 # Create dataset and dataloader
 celeba_dataset = CelebADataset(dataset, transform=transform)
-dataloader = DataLoader(celeba_dataset, batch_size=16, shuffle=True, num_workers=2)
+dataloader = DataLoader(celeba_dataset, batch_size=128, shuffle=True, num_workers=2)
 
 print(f"Dataset loaded with {len(celeba_dataset)} images")
 print(f"Batch size: 16")
@@ -109,7 +110,7 @@ benchmark_encoding_time(vae, dataloader, num_batches=100, device=device)
 # --- END BENCHMARKING ---
 
 # Function to calculate reconstruction errors
-def calculate_reconstruction_errors(vae, dataloader, num_batches=50):
+def calculate_reconstruction_errors(vae, dataloader, num_batches=1000):
     """
     Calculate various reconstruction error metrics
     """
@@ -130,7 +131,6 @@ def calculate_reconstruction_errors(vae, dataloader, num_batches=50):
             # Encode and decode with AutoencoderKL
             encoded_output = vae.encode(original_images)
             latents = encoded_output.latent_dist.sample()
-            print(latents.shape)
             reconstructed_images = vae.decode(latents).sample
             
             # Calculate MSE (Mean Squared Error)
@@ -169,7 +169,7 @@ def calculate_reconstruction_errors(vae, dataloader, num_batches=50):
 
 # Calculate reconstruction errors
 print("Calculating reconstruction errors...")
-errors = calculate_reconstruction_errors(vae, dataloader, num_batches=100)
+errors = calculate_reconstruction_errors(vae, dataloader, num_batches=1000)
 
 # Print statistics
 print("\n=== Reconstruction Error Statistics ===")
@@ -347,3 +347,81 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 print(f"Correlation between image complexity and reconstruction error: {correlation:.4f}")
+
+# -----------------------------------------------------------------------------
+# Visualise the worst-reconstructed samples (highest MSE)
+# -----------------------------------------------------------------------------
+
+def visualize_worst_reconstructions(vae, dataloader, top_k=8, max_batches=200):
+    """Find the *top_k* images with the largest reconstruction MSE and plot them.
+
+    Args:
+        vae (AutoencoderKL): trained/loaded VAE.
+        dataloader (DataLoader): dataloader that yields the *original* images.
+        top_k (int): how many worst samples to show.
+        max_batches (int): safety limit so we do not iterate over the whole
+            dataset if it is very large. Set to None to disable.
+    """
+    # Each entry: (error, orig_cpu_tensor, recon_cpu_tensor)
+    worst_samples = []  # min-heap of fixed size *top_k*
+
+    vae.eval()
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Finding worst reconstructions")):
+            if max_batches is not None and batch_idx >= max_batches:
+                break
+
+            original_images = batch.to(device)
+            latents = vae.encode(original_images).latent_dist.sample()
+            reconstructed_images = vae.decode(latents).sample
+
+            # Per-image MSE
+            mse = F.mse_loss(reconstructed_images, original_images, reduction="none")
+            mse = mse.view(mse.size(0), -1).mean(dim=1)
+
+            for img_idx in range(original_images.size(0)):
+                err_val = mse[img_idx].item()
+                sample_tuple = (err_val, original_images[img_idx].cpu(), reconstructed_images[img_idx].cpu())
+
+                if len(worst_samples) < top_k:
+                    heapq.heappush(worst_samples, sample_tuple)
+                else:
+                    # heap top is smallest error; replace if current bigger
+                    if err_val > worst_samples[0][0]:
+                        heapq.heapreplace(worst_samples, sample_tuple)
+
+    # Sort descending by error for nicer visualisation
+    worst_samples = sorted(worst_samples, key=lambda x: x[0], reverse=True)
+
+    # Plot
+    num_samples = len(worst_samples)
+    fig, axes = plt.subplots(3, num_samples, figsize=(3 * num_samples, 6))
+    for i, (err_val, orig_img, recon_img) in enumerate(worst_samples):
+        # Convert to [0,1]
+        orig_disp = (orig_img + 1) / 2
+        recon_disp = (recon_img + 1) / 2
+        diff_disp = torch.abs(orig_disp - recon_disp)
+        diff_disp = diff_disp / (diff_disp.max() + 1e-8)
+
+        axes[0, i].imshow(orig_disp.permute(1, 2, 0).clamp(0, 1))
+        axes[0, i].set_title("Original")
+        axes[0, i].axis("off")
+
+        axes[1, i].imshow(recon_disp.permute(1, 2, 0).clamp(0, 1))
+        axes[1, i].set_title("Reconstructed")
+        axes[1, i].axis("off")
+
+        axes[2, i].imshow(diff_disp.permute(1, 2, 0).clamp(0, 1))
+        axes[2, i].set_title(f"Diff\nMSE: {err_val:.4f}")
+        axes[2, i].axis("off")
+
+    plt.tight_layout()
+    plt.savefig("worst_reconstructions.png")
+    plt.show()
+
+
+# -----------------------------------------------------------------------------
+# Run the above helper
+# -----------------------------------------------------------------------------
+
+visualize_worst_reconstructions(vae, dataloader, top_k=8, max_batches=300)

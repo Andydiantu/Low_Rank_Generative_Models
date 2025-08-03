@@ -171,7 +171,9 @@ def plot_gradient_analysis(timestep_group_averages, step_wise_data, checkpoint_l
         config: Training configuration object
         output_dir: Optional directory to save plots (if None, plots are displayed)
     """
-    num_timestep_groups = len(timestep_group_averages)
+    # The last group is the full range, so we have (total_groups - 1) regular timestep groups
+    total_groups = len(timestep_group_averages)
+    num_timestep_groups = total_groups - 1
     
     # Prepare data for plotting
     timestep_group_labels = []
@@ -184,6 +186,35 @@ def plot_gradient_analysis(timestep_group_averages, step_wise_data, checkpoint_l
     frobenius_norm_data = []  # List of lists for each checkpoint
     effective_rank_energy_data = []  # List of lists for each checkpoint
     
+    # First add the full timestep range group (at position 0 for leftmost)
+    timestep_group = num_timestep_groups  # This is the full range group
+    timestep_group_labels.append(f"[0,{config.num_training_steps}) FULL")
+    
+    # Calculate averages for full range group
+    if timestep_group_averages[timestep_group]:
+        avg_effective_ranks.append(np.mean(timestep_group_averages[timestep_group]))
+    else:
+        avg_effective_ranks.append(0)
+    
+    # Calculate average Frobenius norms for full range group
+    frobenius_values = [step_wise_data[timestep_group][ckpt]['frobenius_norm'] 
+                       for ckpt in checkpoint_list 
+                       if ckpt in step_wise_data[timestep_group]]
+    if frobenius_values:
+        avg_frobenius_norms.append(np.mean(frobenius_values))
+    else:
+        avg_frobenius_norms.append(0)
+        
+    # Calculate average effective rank energies for full range group
+    energy_values = [step_wise_data[timestep_group][ckpt]['effective_rank_energy'] 
+                    for ckpt in checkpoint_list 
+                    if ckpt in step_wise_data[timestep_group]]
+    if energy_values:
+        avg_effective_ranks_energy.append(np.mean(energy_values))
+    else:
+        avg_effective_ranks_energy.append(0)
+    
+    # Then add the regular timestep groups (positions 1, 2, ..., num_timestep_groups)
     for timestep_group in range(num_timestep_groups):
         min_timestep = config.num_training_steps // num_timestep_groups * timestep_group
         max_timestep = min_timestep + config.num_training_steps // num_timestep_groups
@@ -218,6 +249,19 @@ def plot_gradient_analysis(timestep_group_averages, step_wise_data, checkpoint_l
         eff_ranks = []
         frob_norms = []
         eff_ranks_energy = []
+        
+        # First add full range group data (position 0)
+        full_range_group = num_timestep_groups
+        if checkpoint in step_wise_data[full_range_group]:
+            eff_ranks.append(step_wise_data[full_range_group][checkpoint]['effective_rank'])
+            frob_norms.append(step_wise_data[full_range_group][checkpoint]['frobenius_norm'])
+            eff_ranks_energy.append(step_wise_data[full_range_group][checkpoint]['effective_rank_energy'])
+        else:
+            eff_ranks.append(0)
+            frob_norms.append(0)
+            eff_ranks_energy.append(0)
+            
+        # Then add regular timestep groups data (positions 1, 2, ..., num_timestep_groups)
         for timestep_group in range(num_timestep_groups):
             if checkpoint in step_wise_data[timestep_group]:
                 eff_ranks.append(step_wise_data[timestep_group][checkpoint]['effective_rank'])
@@ -227,6 +271,7 @@ def plot_gradient_analysis(timestep_group_averages, step_wise_data, checkpoint_l
                 eff_ranks.append(0)
                 frob_norms.append(0)
                 eff_ranks_energy.append(0)
+                
         effective_rank_data.append(eff_ranks)
         frobenius_norm_data.append(frob_norms)
         effective_rank_energy_data.append(eff_ranks_energy)
@@ -235,7 +280,8 @@ def plot_gradient_analysis(timestep_group_averages, step_wise_data, checkpoint_l
     fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(18, 12))
     fig.suptitle('Gradient Analysis Across Timestep Groups', fontsize=16, fontweight='bold')
     
-    x_pos = np.arange(num_timestep_groups)
+    # x_pos should include all groups (regular + full range)
+    x_pos = np.arange(total_groups)
     
     # Plot 1: Average Effective Rank (Frobenius-based)
     ax1.bar(x_pos, avg_effective_ranks, alpha=0.7, color='skyblue', edgecolor='navy')
@@ -341,22 +387,39 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     """
     Create heatmap visualizations for effective rank, Frobenius norm, and effective rank energy.
     """
-    num_timestep_groups = len(step_wise_data)
+    num_total_groups = len(step_wise_data)
+    # The last group is the full range, so we have (total_groups - 1) regular timestep groups
+    num_timestep_groups = num_total_groups - 1
     
     # Prepare data matrices
-    effective_rank_matrix = np.zeros((len(checkpoint_list), num_timestep_groups))
-    frobenius_norm_matrix = np.zeros((len(checkpoint_list), num_timestep_groups))
-    effective_rank_energy_matrix = np.zeros((len(checkpoint_list), num_timestep_groups))
+    effective_rank_matrix = np.zeros((len(checkpoint_list), num_total_groups))
+    frobenius_norm_matrix = np.zeros((len(checkpoint_list), num_total_groups))
+    effective_rank_energy_matrix = np.zeros((len(checkpoint_list), num_total_groups))
     
     for i, checkpoint in enumerate(checkpoint_list):
-        for j in range(num_timestep_groups):
-            if checkpoint in step_wise_data[j]:
-                effective_rank_matrix[i, j] = step_wise_data[j][checkpoint]['effective_rank']
-                frobenius_norm_matrix[i, j] = step_wise_data[j][checkpoint]['frobenius_norm']
-                effective_rank_energy_matrix[i, j] = step_wise_data[j][checkpoint]['effective_rank_energy']
+        # Column 0: Full range group
+        full_range_group = num_timestep_groups
+        if checkpoint in step_wise_data[full_range_group]:
+            effective_rank_matrix[i, 0] = step_wise_data[full_range_group][checkpoint]['effective_rank']
+            frobenius_norm_matrix[i, 0] = step_wise_data[full_range_group][checkpoint]['frobenius_norm']
+            effective_rank_energy_matrix[i, 0] = step_wise_data[full_range_group][checkpoint]['effective_rank_energy']
+        
+        # Columns 1 to num_timestep_groups: Regular timestep groups
+        for timestep_group in range(num_timestep_groups):
+            j = timestep_group + 1  # +1 because position 0 is full range group
+            if checkpoint in step_wise_data[timestep_group]:
+                effective_rank_matrix[i, j] = step_wise_data[timestep_group][checkpoint]['effective_rank']
+                frobenius_norm_matrix[i, j] = step_wise_data[timestep_group][checkpoint]['frobenius_norm']
+                effective_rank_energy_matrix[i, j] = step_wise_data[timestep_group][checkpoint]['effective_rank_energy']
     
-    # Create timestep group labels
+    
+    # Create timestep group labels (following the same order as the main plot)
     timestep_labels = []
+    
+    # First add full range group label (position 0)
+    timestep_labels.append(f"[0,{config.num_training_steps}) FULL")
+    
+    # Then add regular timestep group labels (positions 1, 2, ..., num_timestep_groups)
     for group in range(num_timestep_groups):
         min_t = config.num_training_steps // num_timestep_groups * group
         max_t = min_t + config.num_training_steps // num_timestep_groups
@@ -371,7 +434,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     ax1.set_title('Effective Rank (Frobenius)')
     ax1.set_xlabel('Timestep Groups')
     ax1.set_ylabel('Checkpoints')
-    ax1.set_xticks(range(num_timestep_groups))
+    ax1.set_xticks(range(num_total_groups))
     ax1.set_xticklabels(timestep_labels, rotation=45, ha='right')
     ax1.set_yticks(range(len(checkpoint_list)))
     ax1.set_yticklabels(checkpoint_list)
@@ -382,7 +445,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     
     # Add text annotations
     for i in range(len(checkpoint_list)):
-        for j in range(num_timestep_groups):
+        for j in range(num_total_groups):
             text = ax1.text(j, i, f'{effective_rank_matrix[i, j]:.4f}', 
                            ha="center", va="center", color="white", fontweight='bold')
     
@@ -391,7 +454,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     ax2.set_title('Frobenius Norm')
     ax2.set_xlabel('Timestep Groups')
     ax2.set_ylabel('Checkpoints')
-    ax2.set_xticks(range(num_timestep_groups))
+    ax2.set_xticks(range(num_total_groups))
     ax2.set_xticklabels(timestep_labels, rotation=45, ha='right')
     ax2.set_yticks(range(len(checkpoint_list)))
     ax2.set_yticklabels(checkpoint_list)
@@ -402,7 +465,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     
     # Add text annotations
     for i in range(len(checkpoint_list)):
-        for j in range(num_timestep_groups):
+        for j in range(num_total_groups):
             text = ax2.text(j, i, f'{frobenius_norm_matrix[i, j]:.4f}', 
                            ha="center", va="center", color="white", fontweight='bold')
     
@@ -411,7 +474,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     ax3.set_title('Effective Rank (Energy)')
     ax3.set_xlabel('Timestep Groups')
     ax3.set_ylabel('Checkpoints')
-    ax3.set_xticks(range(num_timestep_groups))
+    ax3.set_xticks(range(num_total_groups))
     ax3.set_xticklabels(timestep_labels, rotation=45, ha='right')
     ax3.set_yticks(range(len(checkpoint_list)))
     ax3.set_yticklabels(checkpoint_list)
@@ -422,7 +485,7 @@ def create_heatmap_visualization(step_wise_data, checkpoint_list, config, output
     
     # Add text annotations
     for i in range(len(checkpoint_list)):
-        for j in range(num_timestep_groups):
+        for j in range(num_total_groups):
             text = ax3.text(j, i, f'{effective_rank_energy_matrix[i, j]:.4f}', 
                            ha="center", va="center", color="white", fontweight='bold')
     
@@ -445,16 +508,19 @@ def main():
     config.train_batch_size = 128
     config.low_rank_gradient = True
     num_timestep_groups = 10
+    # Add one extra group for full timestep range [0, 1000)
+    total_groups = num_timestep_groups + 1
     
-    checkpoint_list = ["0009", "0049", "0099", "0149", "0199", "0249", "0299", "0349", "0399", "0449"]
-
-    timestep_group_averages = {i: [] for i in range(num_timestep_groups)}
-    step_wise_data = {i: {} for i in range(num_timestep_groups)}
+    checkpoint_list = ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099", "2199"]
+    # checkpoint_list = ["0099", "0199"]
+    timestep_group_averages = {i: [] for i in range(total_groups)}
+    step_wise_data = {i: {} for i in range(total_groups)}
 
     for checkpoint_idx, checkpoint in enumerate(checkpoint_list):
         print(f"\n=== Processing Checkpoint {checkpoint} ({checkpoint_idx + 1}/{len(checkpoint_list)}) ===")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        load_pretrain_model_path = Path(__file__).parent.parent / "logs"  / "DiT20250715_215849" / f"model_{checkpoint}.pt"  
+        # load_pretrain_model_path = Path(__file__).parent.parent / "logs"  / "DiT20250715_215849" / f"model_{checkpoint}.pt"  
+        load_pretrain_model_path = Path(__file__).parent.parent / "logs"  / "DiT20250726_235632" / f"model_{checkpoint}.pt"  
 
         model = create_model(config)
         model.to(device)
@@ -465,9 +531,15 @@ def main():
 
         dataloader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.6)
 
-        for timestep_group in tqdm(range(num_timestep_groups)):
-            min_timestep = config.num_training_steps // num_timestep_groups * timestep_group
-            max_timestep = min_timestep + config.num_training_steps // num_timestep_groups            
+        for timestep_group in tqdm(range(total_groups)):
+            if timestep_group < num_timestep_groups:
+                # Regular timestep groups
+                min_timestep = config.num_training_steps // num_timestep_groups * timestep_group
+                max_timestep = min_timestep + config.num_training_steps // num_timestep_groups            
+            else:
+                # Full timestep range group [0, 1000)
+                min_timestep = 0
+                max_timestep = config.num_training_steps
             
             print(f"Processing timestep group {timestep_group}: [{min_timestep}, {max_timestep})")
             gradient_effective_rank, gradient_magnitude, gradient_effective_rank_energy = eval_gradient_timestep_group(max_timestep, min_timestep, model, dataloader, noise_scheduler, device)
@@ -488,13 +560,23 @@ def main():
     print("SUMMARY STATISTICS")
     print("="*80)
     
-    for timestep_group in range(num_timestep_groups):
+    for timestep_group in range(total_groups):
         if timestep_group_averages[timestep_group]:
             avg_effective_rank = sum(timestep_group_averages[timestep_group]) / len(timestep_group_averages[timestep_group])
-            min_timestep = config.num_training_steps // num_timestep_groups * timestep_group
-            max_timestep = min_timestep + config.num_training_steps // num_timestep_groups
             
-            print(f"Timestep Group {timestep_group} [{min_timestep}, {max_timestep}):")
+            if timestep_group < num_timestep_groups:
+                # Regular timestep groups
+                min_timestep = config.num_training_steps // num_timestep_groups * timestep_group
+                max_timestep = min_timestep + config.num_training_steps // num_timestep_groups
+            else:
+                # Full timestep range group
+                min_timestep = 0
+                max_timestep = config.num_training_steps
+            
+            group_name = f"Timestep Group {timestep_group} [{min_timestep}, {max_timestep})"
+            if timestep_group == num_timestep_groups:
+                group_name += " (FULL RANGE)"
+            print(f"{group_name}:")
             print(f"  Average Effective Rank: {avg_effective_rank:.4f}")
             
             # Show effective rank for each checkpoint
