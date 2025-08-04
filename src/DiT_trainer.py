@@ -147,12 +147,26 @@ class DiTTrainer:
                 batch_size = latents.shape[0]
 
                 # Sample a random timestep for each image
-                if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0:
+                # Check if we should use curriculum learning based on progression direction
+                should_use_curriculum = False
+                if self.config.curriculum_learning:
+                    if self.training_monitor.start_from_low:
+                        # Forward progression: use curriculum when not at final group
+                        should_use_curriculum = self.training_monitor.current_timestep_groups < self.training_monitor.num_timestep_groups - 1
+                        print(f"should_use_curriculum: {should_use_curriculum}")
+                        print(f"current_timestep_groups: {self.training_monitor.current_timestep_groups}")
+                        print(f"num_timestep_groups: {self.training_monitor.num_timestep_groups - 1}")
+                    else:
+                        # Backward progression: use curriculum when not at initial group  
+                        should_use_curriculum = self.training_monitor.current_timestep_groups > 0
+                
+                if should_use_curriculum:
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
                     low_bound = self.training_monitor.get_current_timestep_groups_low_bound()
+                    print(f"low_bound: {low_bound}")
                     high_bound = self.training_monitor.get_current_timestep_groups_high_bound()
-                    
+                    print(f"high_bound: {high_bound}")
                     half_batch = batch_size // 2
                     remaining_batch = batch_size - half_batch
                     
@@ -163,12 +177,15 @@ class DiTTrainer:
                         (half_batch,),
                         device=clean_images.device,
                     ).long()
-                    
-                    if not high_bound == self.noise_scheduler.config.num_train_timesteps:
+
+
+                    boundaries = self.training_monitor.get_trained_timesteps_boundaries()
+                    if not boundaries[1] == boundaries[0]:
                         # Second half: sample from [high_bound, num_train_timesteps]
+
                         timesteps_second_half = torch.randint(
-                            high_bound,
-                            self.noise_scheduler.config.num_train_timesteps,
+                            boundaries[0],
+                            boundaries[1],
                             (remaining_batch,),
                             device=clean_images.device,
                         ).long()
@@ -185,6 +202,8 @@ class DiTTrainer:
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
+
+                print(f"sampling timesteps from {timesteps.min()} to {timesteps.max()}")
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
