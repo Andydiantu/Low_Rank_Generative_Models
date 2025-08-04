@@ -153,9 +153,7 @@ class DiTTrainer:
                     if self.training_monitor.start_from_low:
                         # Forward progression: use curriculum when not at final group
                         should_use_curriculum = self.training_monitor.current_timestep_groups < self.training_monitor.num_timestep_groups - 1
-                        print(f"should_use_curriculum: {should_use_curriculum}")
-                        print(f"current_timestep_groups: {self.training_monitor.current_timestep_groups}")
-                        print(f"num_timestep_groups: {self.training_monitor.num_timestep_groups - 1}")
+                        
                     else:
                         # Backward progression: use curriculum when not at initial group  
                         should_use_curriculum = self.training_monitor.current_timestep_groups > 0
@@ -164,9 +162,7 @@ class DiTTrainer:
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
                     low_bound = self.training_monitor.get_current_timestep_groups_low_bound()
-                    print(f"low_bound: {low_bound}")
                     high_bound = self.training_monitor.get_current_timestep_groups_high_bound()
-                    print(f"high_bound: {high_bound}")
                     half_batch = batch_size // 2
                     remaining_batch = batch_size - half_batch
                     
@@ -203,7 +199,7 @@ class DiTTrainer:
                         device=clean_images.device,
                     ).long()
 
-                print(f"sampling timesteps from {timesteps.min()} to {timesteps.max()}")
+                # print(f"sampling timesteps from {timesteps.min()} to {timesteps.max()}")
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
@@ -371,7 +367,8 @@ class DiTTrainer:
             torch.save(self.epoch_avg_gradient_norms, os.path.join(self.config.output_dir, "gradient_norms_history.pt"))
             self.plot_gradient_statistics()
 
-            if self.config.curriculum_learning and self.training_monitor.current_timestep_groups > 0 and epoch % 2 == 0:
+            
+            if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done() :
                 val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = self.training_monitor.get_current_timestep_groups_low_bound(), timestep_upper_bound = self.training_monitor.get_current_timestep_groups_high_bound())
                 print(f"Validation loss: {val_loss}")
                 if self.training_monitor(val_loss):

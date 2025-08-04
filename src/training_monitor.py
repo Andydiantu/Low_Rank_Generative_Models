@@ -30,17 +30,17 @@ class TrainingMonitor:
         self.recent_losses.append(loss)
         
         # Calculate running mean if we have enough samples
-        if len(self.recent_losses) >= self.k or True:
+        if len(self.recent_losses) >= self.k:
             self.running_mean = sum(self.recent_losses) / len(self.recent_losses)
             
             # Compare current loss to running mean
-            if self.running_mean < self.best_running_mean and False:
+            if self.running_mean < self.best_running_mean:
                 self.best_running_mean = self.running_mean
                 self.counter = 0
             else:
                 self.counter += 1
                 print(f"counter: {self.counter}")
-                if self.counter >= self.patience or True:
+                if self.counter >= self.patience:
                     # Reset the counter and clear the buffer
                     self.counter = 0
                     self.recent_losses.clear()
@@ -87,3 +87,10 @@ class TrainingMonitor:
             return [0, self.get_current_timestep_groups_low_bound()]
         else:
             return [self.get_current_timestep_groups_high_bound(), 1000]
+
+
+    def get_if_curriculum_learning_is_done(self):
+        if self.start_from_low:
+            return self.current_timestep_groups == self.num_timestep_groups - 1
+        else:
+            return self.current_timestep_groups == 0
