@@ -43,7 +43,7 @@ class DiTTrainer:
         self.epoch_gradient_variances = []  # Store gradient variance per epoch
 
         if config.curriculum_learning:
-            self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups)
+            self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups+1)
 
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
@@ -150,8 +150,9 @@ class DiTTrainer:
                 if not self.training_monitor.get_if_curriculum_learning_is_done():
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
-                    low_bound = self.training_monitor.get_current_timestep_groups_low_bound()
-                    high_bound = self.training_monitor.get_current_timestep_groups_high_bound()
+                    boundaries = self.training_monitor.get_current_group_range()
+                    low_bound = boundaries[0]
+                    high_bound = boundaries[1]
                     half_batch = batch_size // 2
                     remaining_batch = batch_size - half_batch
                     
@@ -357,8 +358,9 @@ class DiTTrainer:
             self.plot_gradient_statistics()
 
             
-            if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done() :
-                val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = self.training_monitor.get_current_timestep_groups_low_bound(), timestep_upper_bound = self.training_monitor.get_current_timestep_groups_high_bound())
+            if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done():
+                boundaries = self.training_monitor.get_current_group_range()
+                val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 print(f"Validation loss: {val_loss}")
                 if self.training_monitor(val_loss):
                     if self.config.low_rank_gradient:
@@ -368,8 +370,9 @@ class DiTTrainer:
                     if self.training_monitor.get_if_curriculum_learning_is_done():
                         print("Curriculum learning is done")
                     else:
-                        print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}") 
-                        print(f"Current timestep groups high bound: {self.training_monitor.get_current_timestep_groups_high_bound()}")
+                        boundaries = self.training_monitor.get_current_group_range()
+                        print(f"Current timestep groups low bound: {boundaries[0]}") 
+                        print(f"Current timestep groups high bound: {boundaries[1]}")
 
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
