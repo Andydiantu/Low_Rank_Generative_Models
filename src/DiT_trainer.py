@@ -147,18 +147,7 @@ class DiTTrainer:
                 batch_size = latents.shape[0]
 
                 # Sample a random timestep for each image
-                # Check if we should use curriculum learning based on progression direction
-                should_use_curriculum = False
-                if self.config.curriculum_learning:
-                    if self.training_monitor.start_from_low:
-                        # Forward progression: use curriculum when not at final group
-                        should_use_curriculum = self.training_monitor.current_timestep_groups < self.training_monitor.num_timestep_groups - 1
-                        
-                    else:
-                        # Backward progression: use curriculum when not at initial group  
-                        should_use_curriculum = self.training_monitor.current_timestep_groups > 0
-                
-                if should_use_curriculum:
+                if not self.training_monitor.get_if_curriculum_learning_is_done():
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
                     low_bound = self.training_monitor.get_current_timestep_groups_low_bound()
@@ -376,7 +365,11 @@ class DiTTrainer:
                         self.optimizer.reset_projection_matrices()
                         print("Resetting projection matrices")
                     print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                    print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}")                    
+                    if self.training_monitor.get_if_curriculum_learning_is_done():
+                        print("Curriculum learning is done")
+                    else:
+                        print(f"Current timestep groups low bound: {self.training_monitor.get_current_timestep_groups_low_bound()}") 
+                        print(f"Current timestep groups high bound: {self.training_monitor.get_current_timestep_groups_high_bound()}")
 
 
             # Print the loss, lr, and step to the log file if running on a SLURM job

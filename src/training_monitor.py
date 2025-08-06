@@ -91,6 +91,6 @@ class TrainingMonitor:
 
     def get_if_curriculum_learning_is_done(self):
         if self.start_from_low:
-            return self.current_timestep_groups == self.num_timestep_groups - 1
+            return self.current_timestep_groups > self.num_timestep_groups - 1
         else:
             return self.current_timestep_groups == 0
