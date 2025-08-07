@@ -148,39 +148,55 @@ class DiTTrainer:
 
                 # Sample a random timestep for each image
                 if not self.training_monitor.get_if_curriculum_learning_is_done():
+
+                    trained_boundaries = self.training_monitor.get_trained_timesteps_boundaries()
+                    trained_low_bound = trained_boundaries[0]
+                    trained_high_bound = trained_boundaries[1]
+
+
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
-                    boundaries = self.training_monitor.get_current_group_range()
-                    low_bound = boundaries[0]
-                    high_bound = boundaries[1]
-                    half_batch = batch_size // 2
-                    remaining_batch = batch_size - half_batch
-                    
-                    # First half: sample from [low_bound, high_bound]
-                    timesteps_first_half = torch.randint(
-                        low_bound,
-                        high_bound,
-                        (half_batch,),
-                        device=clean_images.device,
-                    ).long()
+                    current_group_boundaries = self.training_monitor.get_current_group_range()
+                    current_low_bound = current_group_boundaries[0]
+                    current_high_bound = current_group_boundaries[1]
 
+                    if not trained_high_bound == trained_low_bound:
 
-                    boundaries = self.training_monitor.get_trained_timesteps_boundaries()
-                    if not boundaries[1] == boundaries[0]:
-                        # Second half: sample from [high_bound, num_train_timesteps]
+                        
+                        first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
+                        second_batch = batch_size - first_batch
+                        
+                        # First half: sample from [low_bound, high_bound]
+                        timesteps_first_half = torch.randint(
+                            current_low_bound,
+                            current_high_bound,
+                            (first_batch,),
+                            device=clean_images.device,
+                        ).long()
 
                         timesteps_second_half = torch.randint(
-                            boundaries[0],
-                            boundaries[1],
-                            (remaining_batch,),
+                            trained_low_bound,
+                            trained_high_bound,
+                            (second_batch,),
                             device=clean_images.device,
                         ).long()
 
                         timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
+
+                        # print(f"sampled {first_batch} timesteps from {current_low_bound} to {current_high_bound}")
+                        # print(f"sampled {second_batch} timesteps from {trained_low_bound} to {trained_high_bound}")
+
                     else:
-                        timesteps = torch.cat([timesteps_first_half, timesteps_first_half], dim=0)
-                    
-                   
+
+                        timesteps = torch.randint(
+                            current_low_bound,
+                            current_high_bound,
+                            (batch_size,),
+                            device=clean_images.device,
+                        ).long()
+
+                        # print(f"sampled {batch_size} timesteps from {current_low_bound} to {current_high_bound}")
+
                 else:
                     timesteps = torch.randint(
                         0,
