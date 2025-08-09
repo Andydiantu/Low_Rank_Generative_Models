@@ -5,16 +5,20 @@ from pathlib import Path
 from collections import deque
 
 class TrainingMonitor:
-    def __init__(self, patience, num_timestep_groups, k=10, start_from_low=True, start_from_middle=False, middle_group_index=4):
+    def __init__(self, patience, num_timestep_groups, k=10, start_from_low=True, start_from_middle=True, middle_group_index=3):
         self.patience = patience
         self.k = k  # Number of steps to track for running mean
-        self.recent_losses = deque(maxlen=k)  # Circular buffer for past k losses
+        self.recent_losses = deque(maxlen=k)  # Circular buffer for past k losses   
         self.best_running_mean = float('inf')
         self.running_mean = float('inf')
         self.counter = 0
         self.num_timestep_groups = num_timestep_groups
         self.start_from_low = start_from_low
         self.start_from_middle = start_from_middle
+
+        self.ema_alpha = 0.1
+        self.ema_moving_average = None
+        self.ema_counter = 0
         
         self.training_group_boundaries = [0, 123, 234, 371, 520, 667, 796, 897, 1000]
         
@@ -62,13 +66,46 @@ class TrainingMonitor:
             self.counter = 0
             
         return False
+    def _reset_monitors(self):
+        self.recent_losses.clear()
+        self.running_mean = float('inf')
+        self.best_running_mean = float('inf')
+        self.counter = 0
+        self.ema_moving_average = None   # will be set to first loss in new group
+        self.ema_counter = 0
+
+    
+    def call_ema_moving_average(self, loss):
+        """Update EMA moving average with new loss."""
+
+        if self.ema_moving_average is None:
+            self.ema_moving_average = loss
+            return False
+
+        old_ema = self.ema_moving_average
+        self.ema_moving_average = self.ema_alpha * loss + (1 - self.ema_alpha) * old_ema
+        self.ema_counter += 1
+        print(f"ema_moving_average: {self.ema_moving_average}")
+    
+        if self.ema_moving_average < old_ema:
+            self.counter = 0
+        else:
+            self.counter += 1
+            print(f"counter: {self.counter}")
+            if self.counter >= self.patience:
+                return self._progress_to_next_group()
+        return False
+
+        
+
+
+
+
 
     def _progress_to_next_group(self):
         """Progress to the next timestep group and reset monitoring state."""
         # Reset the counter and clear the buffer
-        self.counter = 0
-        self.recent_losses.clear()
-        self.running_mean = float('inf')
+        self._reset_monitors()  
         
         if self.start_from_middle:
             return self._progress_alternating()
