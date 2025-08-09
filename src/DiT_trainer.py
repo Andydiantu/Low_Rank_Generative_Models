@@ -147,7 +147,7 @@ class DiTTrainer:
                 batch_size = latents.shape[0]
 
                 # Sample a random timestep for each image
-                if not self.training_monitor.get_if_curriculum_learning_is_done():
+                if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
 
                     trained_boundaries = self.training_monitor.get_trained_timesteps_boundaries()
                     trained_low_bound = trained_boundaries[0]
@@ -378,7 +378,7 @@ class DiTTrainer:
                 boundaries = self.training_monitor.get_current_group_range()
                 val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 print(f"Validation loss: {val_loss}")
-                if self.training_monitor.call_ema_moving_average(val_loss):
+                if self.training_monitor(val_loss):
                     if self.config.low_rank_gradient:
                         self.optimizer.reset_projection_matrices()
                         print("Resetting projection matrices")
