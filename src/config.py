@@ -6,7 +6,7 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 64
+    train_batch_size: int = 128
     eval_batch_size: int = 16
     num_epochs: int = 3000
     prediction_type: str = "epsilon"
@@ -16,14 +16,14 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
     lr_warmup_steps: int = 3000
-    # validation_epochs: int = 50
-    # save_image_epochs: int = 50
-    # save_model_epochs: int = 50
-    # evaluate_fid_epochs: int = 150
-    validation_epochs: int = 1 # for testing
-    save_image_epochs: int = 1 # for testing
-    save_model_epochs: int = 1 # for testing
-    evaluate_fid_epochs: int = 1 # for testing
+    validation_epochs: int = 50
+    save_image_epochs: int = 50
+    save_model_epochs: int = 50
+    evaluate_fid_epochs: int = 150
+    # validation_epochs: int = 1 # for testing
+    # save_image_epochs: int = 1 # for testing
+    # save_model_epochs: int = 1 # for testing
+    # evaluate_fid_epochs: int = 1 # for testing
     eval_dataset_size: int = 1024
     noise_scheduler: str = "DDIM"
     num_training_steps: int = 1000
@@ -40,11 +40,12 @@ class TrainingConfig:
     frobenius_norm_loss_weight: float = 1e-6
     low_rank_rank: int = 32
     low_rank_compression: bool = False
-    low_rank_gradient: bool = False
+    low_rank_gradient: bool = True
     low_rank_gradient_rank: int = 128
-    curriculum_learning: bool = False
+    curriculum_learning: bool = True
     curriculum_learning_patience: int = 5
-    curriculum_learning_timestep_num_groups: int = 10
+    curriculum_learning_timestep_num_groups: int = 8
+    curriculum_learning_current_group_portion: float = 0.9
     real_features_path: str = "data/fid_features/CIFAR10_train_features.pt"
     load_pretrained_model: bool = False
     pretrained_model_path: Optional[str] = "logs/DiT20250801_173806/model_0089.pt"
