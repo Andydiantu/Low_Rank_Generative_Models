@@ -1,6 +1,14 @@
 import os
 from pathlib import Path
 import time
+import argparse
+import json
+from dataclasses import fields as dataclass_fields
+from typing import get_origin, get_args, Union
+try:
+    import yaml
+except Exception:
+    yaml = None
 
 import torch
 import torch.profiler
@@ -23,6 +31,41 @@ from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_c
 
 
 
+def _coerce_value_for_type(value_str, type_hint):
+    origin = get_origin(type_hint)
+    args = get_args(type_hint)
+    if origin is Union and type(None) in args:
+        non_none = [a for a in args if a is not type(None)][0]
+        if str(value_str) in ("None", "none", ""):
+            return None
+        return _coerce_value_for_type(value_str, non_none)
+    if type_hint is bool:
+        if isinstance(value_str, bool):
+            return value_str
+        s = str(value_str).lower()
+        if s in ("1", "true", "yes", "y", "t"):  # noqa: E741
+            return True
+        if s in ("0", "false", "no", "n", "f"):
+            return False
+        raise ValueError(f"Cannot parse boolean from '{value_str}'")
+    if type_hint is int:
+        return int(value_str)
+    if type_hint is float:
+        return float(value_str)
+    if type_hint is Path:
+        return Path(value_str)
+    return value_str
+
+
+def _build_kwargs_for_config(config_cls, values_dict):
+    field_types = {f.name: f.type for f in dataclass_fields(config_cls)}
+    kwargs = {}
+    for key, raw_val in values_dict.items():
+        if key in field_types:
+            kwargs[key] = _coerce_value_for_type(raw_val, field_types[key])
+    return kwargs
+
+
 class DiTTrainer:
     def __init__(self, model, noise_scheduler, train_dataloader, validation_dataloader, config):
         self.model = model
@@ -43,7 +86,10 @@ class DiTTrainer:
         self.epoch_gradient_variances = []  # Store gradient variance per epoch
 
         if config.curriculum_learning:
-            self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, num_timestep_groups=config.curriculum_learning_timestep_num_groups+1)
+            self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, 
+            num_timestep_groups=config.curriculum_learning_timestep_num_groups+1, 
+            ema_alpha=config.curriculum_learning_ema_alpha, 
+            ema_warmup=config.curriculum_learning_ema_warmup)
 
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
@@ -378,7 +424,7 @@ class DiTTrainer:
                 boundaries = self.training_monitor.get_current_group_range()
                 val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 print(f"Validation loss: {val_loss}")
-                if self.training_monitor(val_loss):
+                if self.training_monitor.call_ema_moving_average(val_loss):
                     if self.config.low_rank_gradient:
                         self.optimizer.reset_projection_matrices()
                         print("Resetting projection matrices")
@@ -633,9 +679,41 @@ class DiTTrainer:
         return avg_val_loss
 
 
+
 def main():
 
-    config = TrainingConfig()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-class", choices=["training", "ld"], default="training",
+                        help="Choose which config dataclass to use")
+    parser.add_argument("--config-file", type=str, default=None,
+                        help="Path to JSON or YAML file with config values")
+    parser.add_argument("--set", action="append", default=[],
+                        help="Override config fields via key=value. Repeatable.")
+    args = parser.parse_args()
+
+    config_cls = TrainingConfig if args.config_class == "training" else LDConfig
+
+    config_values = {}
+    if args.config_file:
+        with open(args.config_file, "r") as f:
+            if args.config_file.endswith((".yml", ".yaml")):
+                if yaml is None:
+                    raise RuntimeError("PyYAML not installed. Install pyyaml or use a JSON config file.")
+                loaded = yaml.safe_load(f)
+            else:
+                loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("Config file must contain a top-level mapping of keys to values")
+        config_values.update(loaded)
+
+    for item in args.set:
+        if "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        config_values[key] = value
+
+    kwargs = _build_kwargs_for_config(config_cls, config_values)
+    config = config_cls(**kwargs)
     # config = LDConfig()
     print_config(config)
     
