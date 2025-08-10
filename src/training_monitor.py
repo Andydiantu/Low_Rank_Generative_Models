@@ -5,7 +5,7 @@ from pathlib import Path
 from collections import deque
 
 class TrainingMonitor:
-    def __init__(self, patience, num_timestep_groups, k=10, start_from_low=True, start_from_middle=True, middle_group_index=3):
+    def __init__(self, patience, num_timestep_groups, k=10, start_from_low=False, start_from_middle=False, middle_group_index=3, ema_alpha=0.1, ema_warmup=3):
         self.patience = patience
         self.k = k  # Number of steps to track for running mean
         self.recent_losses = deque(maxlen=k)  # Circular buffer for past k losses   
@@ -16,7 +16,8 @@ class TrainingMonitor:
         self.start_from_low = start_from_low
         self.start_from_middle = start_from_middle
 
-        self.ema_alpha = 0.1
+        self.ema_alpha = ema_alpha
+        self.ema_warmup = ema_warmup
         self.ema_moving_average = None
         self.ema_counter = 0
         
@@ -78,13 +79,18 @@ class TrainingMonitor:
     def call_ema_moving_average(self, loss):
         """Update EMA moving average with new loss."""
 
+        # Count this loss since last reset and ignore first five completely
+        self.ema_counter += 1
+        if self.ema_counter <= self.ema_warmup:
+            return False
+
+        # Initialize EMA on first recorded step after warmup
         if self.ema_moving_average is None:
             self.ema_moving_average = loss
             return False
 
         old_ema = self.ema_moving_average
         self.ema_moving_average = self.ema_alpha * loss + (1 - self.ema_alpha) * old_ema
-        self.ema_counter += 1
         print(f"ema_moving_average: {self.ema_moving_average}")
     
         if self.ema_moving_average < old_ema:
