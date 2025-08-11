@@ -135,6 +135,7 @@ class DiTTrainer:
             epoch_nuclear_norm_loss = 0.0
             epoch_frobenius_norm_loss = 0.0
             epoch_projection_loss = 0.0
+            epoch_current_timestep_group_loss = 0.0
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"].to(device)
                 if self.config.vae and not self.config.use_latents:
@@ -183,9 +184,9 @@ class DiTTrainer:
 
                         timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
 
-                        # print(f"sampled {first_batch} timesteps from {current_low_bound} to {current_high_bound}")
-                        # print(f"sampled {second_batch} timesteps from {trained_low_bound} to {trained_high_bound}")
+                        current_timestep_group_batch_size = first_batch
 
+                        
                     else:
 
                         timesteps = torch.randint(
@@ -195,7 +196,9 @@ class DiTTrainer:
                             device=clean_images.device,
                         ).long()
 
-                        # print(f"sampled {batch_size} timesteps from {current_low_bound} to {current_high_bound}")
+                        current_timestep_group_batch_size = batch_size
+
+
 
                 else:
                     timesteps = torch.randint(
@@ -261,6 +264,15 @@ class DiTTrainer:
                 # print(loss_weight)
              
                 loss = F.mse_loss(pred, target, reduction="none")
+
+
+                if self.config.curriculum_learning:
+                    loss_current_timestep_group = loss[:current_timestep_group_batch_size]
+
+                    loss_current_timestep_group = loss_current_timestep_group.mean()
+
+                    epoch_current_timestep_group_loss += loss_current_timestep_group.detach().item()
+
                 # loss = loss * loss_weight
                 loss = loss.mean()
                     
@@ -351,6 +363,7 @@ class DiTTrainer:
             avg_epoch_frobenius_loss = epoch_frobenius_loss / len(train_dataloader)
             avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
             avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
+            avg_epoch_current_timestep_group_loss = epoch_current_timestep_group_loss / len(train_dataloader) if self.config.curriculum_learning else 0.0
             self.train_loss_history.append(avg_epoch_train_loss)
             if self.config.low_rank_gradient:
                 self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
@@ -374,21 +387,22 @@ class DiTTrainer:
             self.plot_gradient_statistics()
 
             
-            if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done():
-                boundaries = self.training_monitor.get_current_group_range()
-                val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
-                print(f"Validation loss: {val_loss}")
-                if self.training_monitor(val_loss):
-                    if self.config.low_rank_gradient:
-                        self.optimizer.reset_projection_matrices()
-                        print("Resetting projection matrices")
-                    print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                    if self.training_monitor.get_if_curriculum_learning_is_done():
-                        print("Curriculum learning is done")
-                    else:
-                        boundaries = self.training_monitor.get_current_group_range()
-                        print(f"Current timestep groups low bound: {boundaries[0]}") 
-                        print(f"Current timestep groups high bound: {boundaries[1]}")
+            print(f"avg_epoch_current_timestep_group_loss: {avg_epoch_current_timestep_group_loss}")
+            # if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done():
+            #     boundaries = self.training_monitor.get_current_group_range()
+            #     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
+                # print(f"Validation loss: {val_loss}")
+            if self.training_monitor.call_simple_compare_best(avg_epoch_current_timestep_group_loss):
+                if self.config.low_rank_gradient:
+                    self.optimizer.reset_projection_matrices()
+                    print("Resetting projection matrices")
+                print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                if self.training_monitor.get_if_curriculum_learning_is_done():
+                    print("Curriculum learning is done")
+                else:
+                    boundaries = self.training_monitor.get_current_group_range()
+                    print(f"Current timestep groups low bound: {boundaries[0]}") 
+                    print(f"Current timestep groups high bound: {boundaries[1]}")
 
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
