@@ -478,7 +478,7 @@ class DiTTrainer:
                     or epoch == self.config.num_epochs - 1
                 ):
                     # Create pipeline with memory optimizations with autocast
-                    with torch.amp.autocast(device_type="cuda", enabled=True):
+                    with torch.amp.autocast(device_type="cuda", enabled=False):
                         # Store original model parameters before applying EMA weights
                         original_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                         
@@ -599,7 +599,6 @@ class DiTTrainer:
         image_grid.save(f"{test_dir}/{epoch:04d}.png")
 
     def evaluate_fid(self, config, pipeline, num_samples = 5000 ):
-        self.ema_model.copy_to(self.model.parameters())
         fid_score = self.eval.compute_metrics(pipeline, num_samples)
         print(f"FID Score: {fid_score} \n")
         del pipeline

@@ -21,17 +21,21 @@ class Eval:
 
     def setup_metrics(self, real_features_path):
         self.fid = FrechetInceptionDistance(feature=2048, normalize=True, reset_real_features=False)
-        
+        self.fid.set_dtype(torch.float64)
         # Move FID metric to GPU if available
         if torch.cuda.is_available():
             self.fid = self.fid.cuda()
+            self.fid.set_dtype(torch.float64)
         
         real_features_path = Path(__file__).parent.parent / real_features_path
 
         if real_features_path.exists():
-            self.fid = torch.load(real_features_path, weights_only=False)
+            self.fid = torch.load(real_features_path, weights_only=False, map_location='cuda' if torch.cuda.is_available() else 'cpu')
             print(self.fid.real_features_num_samples)
             print("Real features loaded")
+            self.fid = self.fid.cuda()
+            self.fid.set_dtype(torch.float64)
+
         else:
             print(self.val_dataloader)
             # Precompute real image features
