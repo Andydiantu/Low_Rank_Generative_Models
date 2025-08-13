@@ -438,17 +438,18 @@ class DiTTrainer:
             #     boundaries = self.training_monitor.get_current_group_range()
             #     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 # print(f"Validation loss: {val_loss}")
-            if self.training_monitor.call_simple_compare_best(avg_epoch_current_timestep_group_loss):
-                if self.config.low_rank_gradient:
-                    self.optimizer.reset_projection_matrices()
-                    print("Resetting projection matrices")
-                print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
-                if self.training_monitor.get_if_curriculum_learning_is_done():
-                    print("Curriculum learning is done")
-                else:
-                    boundaries = self.training_monitor.get_current_group_range()
-                    print(f"Current timestep groups low bound: {boundaries[0]}") 
-                    print(f"Current timestep groups high bound: {boundaries[1]}")
+            if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
+                if self.training_monitor(avg_epoch_current_timestep_group_loss):
+                    if self.config.low_rank_gradient:
+                        self.optimizer.reset_projection_matrices()
+                        print("Resetting projection matrices")
+                    print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
+                    if self.training_monitor.get_if_curriculum_learning_is_done():
+                        print("Curriculum learning is done")
+                    else:
+                        boundaries = self.training_monitor.get_current_group_range()
+                        print(f"Current timestep groups low bound: {boundaries[0]}") 
+                        print(f"Current timestep groups high bound: {boundaries[1]}")
 
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
@@ -730,8 +731,8 @@ def main():
     # config = LDConfig()
     print_config(config)
     
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
