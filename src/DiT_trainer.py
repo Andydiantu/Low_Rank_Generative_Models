@@ -89,7 +89,10 @@ class DiTTrainer:
             self.training_monitor = TrainingMonitor(patience=config.curriculum_learning_patience, 
             num_timestep_groups=config.curriculum_learning_timestep_num_groups+1, 
             ema_alpha=config.curriculum_learning_ema_alpha, 
-            ema_warmup=config.curriculum_learning_ema_warmup)
+            ema_warmup=config.curriculum_learning_ema_warmup,
+            start_from_low=config.curriculum_learning_start_from_low,
+            start_from_middle=config.curriculum_learning_start_from_middle,
+            middle_group_index=config.curriculum_learning_middle_group_index)
 
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
