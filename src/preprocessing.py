@@ -14,7 +14,7 @@ def load_pre_encoded_latents(dataset_name, split):
     # (N, latent_dim, …)
     latents = torch.load(
         Path(Path(__file__).parent.parent, "data",
-             f"{dataset_name}_latents.pt")
+             f"{dataset_name}_latents_128.pt")
     )
 
     data_dict = {"img": [t for t in latents]}        

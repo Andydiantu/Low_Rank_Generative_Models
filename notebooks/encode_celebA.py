@@ -1,4 +1,4 @@
-from diffusers.models import AutoencoderKL
+from diffusers.models import AutoencoderKL, VQModel
 import torch
 import numpy as np
 from datasets import load_dataset
@@ -13,7 +13,7 @@ print(f"Using device: {device}")
 batch_size = 16
 
 
-vae = AutoencoderKL.from_pretrained("tpremoli/MLD-CelebA-128-80k", subfolder="vae")
+vae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
 vae = vae.to(device)
 vae.eval()
 
@@ -55,14 +55,13 @@ final_dataset = []
 for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
     with torch.no_grad():
         batch = batch.to(device)
-        latents = vae.encode(batch).latent_dist.sample() * vae.config.scaling_factor
-        
+        latents = vae.encode(batch).latents
 
         final_dataset.append(latents)
 
 final_dataset = torch.cat(final_dataset, dim=0)
 print(final_dataset.shape)
 
-torch.save(final_dataset, Path(Path(__file__).parent.parent, "data", "celebA_latents.pt"))
+torch.save(final_dataset, Path(Path(__file__).parent.parent, "data", "celebA_latents_128.pt"))
 
 print(final_dataset.shape)

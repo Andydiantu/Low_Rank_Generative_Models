@@ -8,3 +8,5 @@ tqdm==4.67.1
 torchmetrics==1.7.1
 torch-fidelity==0.3.0
 galore-torch==1.0
+
+matplotlib
