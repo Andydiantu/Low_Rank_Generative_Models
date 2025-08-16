@@ -6,7 +6,7 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 128
+    train_batch_size: int = 256
     eval_batch_size: int = 128
     num_epochs: int = 3000
     prediction_type: str = "epsilon"
@@ -40,11 +40,11 @@ class TrainingConfig:
     frobenius_norm_loss_weight: float = 1e-6
     low_rank_rank: float = 0.25
     low_rank_compression: bool = False
-    low_rank_gradient: bool = False
-    low_rank_gradient_rank: int = 128
-    curriculum_learning: bool = True
+    low_rank_gradient: bool = True
+    low_rank_gradient_rank: int = 32
+    curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
-    curriculum_learning_timestep_num_groups: int = 5
+    curriculum_learning_timestep_num_groups: int = 10
     curriculum_learning_current_group_portion: float = 0.8
     curriculum_learning_ema_alpha: float = 0.1
     curriculum_learning_ema_warmup: int = 3
