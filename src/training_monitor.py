@@ -23,7 +23,8 @@ class TrainingMonitor:
         
         # self.training_group_boundaries = [0, 123, 234, 371, 520, 667, 796, 897, 1000]
         # self.training_group_boundaries = [0, 17, 44, 81 , 128, 185, 250, 323, 400, 481, 562, 641, 716, 783, 844, 895, 936, 967, 988, 999, 1000]
-        self.training_group_boundaries = [0, 133, 372, 653, 881, 1000]
+        # self.training_group_boundaries = [0, 133, 372, 653, 881, 1000]
+        self.training_group_boundaries = [0, 23, 64, 121, 194, 279, 374, 475, 578, 677, 767, 844, 907, 954, 985, 1000]
         # Initialize training state based on mode
         if start_from_middle:
             if middle_group_index is None:

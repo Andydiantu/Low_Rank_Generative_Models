@@ -50,7 +50,7 @@ class TrainingConfig:
     curriculum_learning_ema_warmup: int = 3
     curriculum_learning_start_from_low: bool = False
     curriculum_learning_start_from_middle: bool = False
-    curriculum_learning_middle_group_index: int = 2
+    curriculum_learning_middle_group_index: int = 7
     real_features_path: str = "data/fid_features/CIFAR10_train_features_fp64_0.3.pt"
     load_pretrained_model: bool = False
     pretrained_model_path: Optional[str] = "logs/DiT20250801_173806/model_0089.pt"
