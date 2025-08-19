@@ -47,7 +47,7 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
 
 def main():
     config = TrainingConfig()
-    config.train_batch_size = 1024
+    config.train_batch_size = 512
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     num_timestep_groups = 10
@@ -56,7 +56,7 @@ def main():
 
     # checkpoint_list = ["0099", "0299", "0499", "0699", "0899", "1049", "1249", "1449", "1649", "1849", "2049"]
     checkpoint_list = ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199"]
-    load_checkpoint_folder = "DiT20250806_203705"
+    load_checkpoint_folder = "DiT20250810_004717"
 
     # Initialize data storage for plotting
     # Dictionary to store losses: {timestep_group_idx: [loss_values_per_checkpoint]}

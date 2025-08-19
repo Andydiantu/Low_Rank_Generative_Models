@@ -10,10 +10,11 @@ from accelerate import Accelerator
 import argparse
 
 
+@torch.no_grad()
 def evaluate_fid(config, pipeline):
         test_dataloader = create_dataloader("uoft-cs/cifar10", "train", config, eval=True)
         eval = Eval(test_dataloader, config)
-        fid_score = eval.compute_metrics(pipeline)
+        fid_score = eval.compute_metrics(pipeline, num_samples=50000)
         print(f"FID Score: {fid_score}")
         del pipeline
 
@@ -23,10 +24,10 @@ def main():
     args = parser.parse_args()
 
     config = TrainingConfig()
-    config.noise_scheduler = "DDPM"
-    config.num_inference_steps = 1000
+    config.noise_scheduler = "DDIM"
+    config.num_inference_steps = 100
 
-    evaluate_path = "logs/" + args.evaluate_path + "/EMA_model_0099.pt"
+    evaluate_path = "logs/" + args.evaluate_path + "/EMA_model_1199.pt"
     print(evaluate_path)
     evaluate_path = Path(__file__).parent.parent / evaluate_path 
     print(evaluate_path)
@@ -53,7 +54,7 @@ def main():
     pipeline = pipeline.to("cuda")
     
     config.eval_dataset_size = 50000
-    config.eval_batch_size = 512
+    config.eval_batch_size = 128
     print(f"Evaluating FID for {config.eval_dataset_size} images")
 
     for i in [0.5]:

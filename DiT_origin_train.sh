@@ -11,4 +11,5 @@ source /vol/cuda/12.0.0/setup.sh
 /usr/bin/nvidia-smi
 uptime
 
-python -u src/DiT_trainer.py
+timestamp=$(date +"%Y%m%d_%H%M%S")
+python -u src/DiT_trainer.py 2>&1 | tee tmux_log/output_log_${timestamp}.txt

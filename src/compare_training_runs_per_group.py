@@ -46,19 +46,35 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
 def load_training_runs_config():
     """Configure the training runs to compare"""
     training_runs = {
-        "Full Rank": {
+        "Baseline": {
             "folder": "DiT20250815_133251",
-            "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
+            "checkpoints": [ "1049", "1099", "1149", "1199", "1249", "1299", "1349"],
         },
-        "Currc Start high": {
-            "folder": "DiT20250815_133041", 
-            "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
-        },
+        # "Currc Start high": {
+        #     "folder": "DiT20250815_133041", 
+        #     "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
+        # },
 
-        "Currc Start low": {
-            "folder": "DiT20250815_132803",
-            "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
-        },
+        # "Currc Start low": {
+        #     "folder": "DiT20250815_132803",
+        #     "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
+        # },
+
+        # "floor 60%": {
+        #     "folder": "DiT20250817_152007",
+        #     "checkpoints": ["0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049"],
+        # },
+
+        # "floor 80%": {
+        #     "folder": "DiT20250817_151731",
+        #     "checkpoints": ["0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049"],
+        # },
+
+
+        "floor 60% second round":{
+            "folder": "DiT20250818_021738",
+            "checkpoints": ["0299", "0349", "0399", "0449", "0499", "0549", "0599"],
+        }
         
         # Add more training runs as needed
         # "Low Rank R=32": {
@@ -155,6 +171,8 @@ def main():
         for run_idx, (run_name, run_config) in enumerate(training_runs.items()):
             if group_idx in all_results[run_name] and all_results[run_name][group_idx]:
                 checkpoint_numbers = [int(ckpt) for ckpt in run_config["checkpoints"]]
+                if run_name == "floor 60% second round":
+                    checkpoint_numbers = [int(ckpt)+750 for ckpt in run_config["checkpoints"]]
                 losses = all_results[run_name][group_idx]
                 
                 # Ensure we have the same number of checkpoints and losses
@@ -188,7 +206,8 @@ def main():
                             label=run_name, linestyle=line_style, color=color)
         
         plt.xlabel('Checkpoint', fontsize=14)
-        plt.ylabel('Training Loss', fontsize=14)
+        plt.ylabel('Training Loss (log scale)', fontsize=14)
+        plt.yscale('log')
         plt.title(f'Training Loss Comparison - Timestep Group {group_idx}\n(Timesteps {time_step_low}-{time_step_high}) [Filtered: loss ≤ {filter_threshold}]', 
                  fontsize=16, fontweight='bold')
         plt.legend(fontsize=12)
@@ -196,7 +215,7 @@ def main():
         plt.tight_layout()
         
         # Save individual plot
-        output_path = Path(__file__).parent.parent / "logs" / f"timestep_group_{group_idx}_comparison.png"
+        output_path = Path(__file__).parent.parent / "logs" / f"test_floor_timestep_group_{group_idx}_comparison.png"
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved plot for timestep group {group_idx} to {output_path}")
         
@@ -226,14 +245,15 @@ def main():
                     color=group_colors[group_idx])
     
     plt.xlabel('Checkpoint', fontsize=14)
-    plt.ylabel('Training Loss', fontsize=14)
+    plt.ylabel('Training Loss (log scale)', fontsize=14)
+    plt.yscale('log')
     plt.title(f'All Timestep Groups - {first_run_name}', fontsize=16, fontweight='bold')
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     # Save summary plot
-    summary_output_path = Path(__file__).parent.parent / "logs" / f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
+    summary_output_path = Path(__file__).parent.parent / "logs" / f"test_floor_all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
     plt.savefig(summary_output_path, dpi=300, bbox_inches='tight')
     print(f"Saved summary plot to {summary_output_path}")
     plt.show()

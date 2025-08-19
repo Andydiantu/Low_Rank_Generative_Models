@@ -20,11 +20,12 @@ class TrainingMonitor:
         self.ema_warmup = ema_warmup
         self.ema_moving_average = None
         self.ema_counter = 0
+        self.last_boundary = None
         
-        # self.training_group_boundaries = [0, 123, 234, 371, 520, 667, 796, 897, 1000]
+        self.training_group_boundaries = [0, 44 , 123, 234, 371, 520, 667, 796, 897,967 , 1000]
         # self.training_group_boundaries = [0, 17, 44, 81 , 128, 185, 250, 323, 400, 481, 562, 641, 716, 783, 844, 895, 936, 967, 988, 999, 1000]
         # self.training_group_boundaries = [0, 133, 372, 653, 881, 1000]
-        self.training_group_boundaries = [0, 23, 64, 121, 194, 279, 374, 475, 578, 677, 767, 844, 907, 954, 985, 1000]
+        # self.training_group_boundaries = [0, 23, 64, 121, 194, 279, 374, 475, 578, 677, 767, 844, 907, 954, 985, 1000]
         # Initialize training state based on mode
         if start_from_middle:
             if middle_group_index is None:
@@ -45,6 +46,14 @@ class TrainingMonitor:
             # Start from 966, progress to 0 (original behavior)
             self.current_timestep_groups = num_timestep_groups - 1
             self.trained_groups = {num_timestep_groups - 1}
+
+    def reset_curriculum_learning(self):
+        self.current_timestep_groups = self.num_timestep_groups - 1
+        self.trained_groups = {self.num_timestep_groups - 1}
+        self.next_direction = 'left'
+        self.last_boundary = None
+        self.ema_moving_average = None
+        self.ema_counter = 0
 
     def __call__(self, loss):
         """Update training monitor with new loss and check if we should progress to next group."""
@@ -204,6 +213,18 @@ class TrainingMonitor:
             low_bound = self.training_group_boundaries[self.current_timestep_groups - 1]
         
         return [low_bound, high_bound]
+    
+    def get_timestep_group_gradual(self):
+        curr_boundaries = self.get_current_group_range()
+        if self.last_boundary is None:
+            self.last_boundary = curr_boundaries
+            return curr_boundaries
+        else:
+            if curr_boundaries[0] <= self.last_boundary[0] and curr_boundaries[1] <= self.last_boundary[1]:
+                self.last_boundary = [self.last_boundary[0]-1, self.last_boundary[1]-1]
+                return self.last_boundary
+            else:
+                return curr_boundaries
 
     def get_trained_timesteps_boundaries(self):
         """Get the boundaries of all timesteps that have already been trained [low_bound, high_bound]."""

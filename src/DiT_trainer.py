@@ -77,7 +77,8 @@ class DiTTrainer:
         self.val_loss_history = []
         self.ema_val_loss_history = []
         self.eval = Eval(train_dataloader , config)
-
+        
+        self.curriculum_full_finetune_count = 0
         self.projection_loss_history = []
         
         # Add gradient variance tracking - per epoch approach
@@ -210,7 +211,7 @@ class DiTTrainer:
                     current_low_bound = current_group_boundaries[0]
                     current_high_bound = current_group_boundaries[1]
 
-                    if not trained_high_bound == trained_low_bound:
+                    if not trained_high_bound == trained_low_bound or True:
 
                         
                         first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
@@ -224,12 +225,14 @@ class DiTTrainer:
                             device=clean_images.device,
                         ).long()
 
+
                         timesteps_second_half = torch.randint(
-                            trained_low_bound,
-                            trained_high_bound,
+                            0,
+                            self.noise_scheduler.config.num_train_timesteps,
                             (second_batch,),
                             device=clean_images.device,
                         ).long()
+
 
                         timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
 
@@ -454,6 +457,14 @@ class DiTTrainer:
                         print(f"Current timestep groups low bound: {boundaries[0]}") 
                         print(f"Current timestep groups high bound: {boundaries[1]}")
 
+            if self.config.curriculum_learning and self.training_monitor.get_if_curriculum_learning_is_done():
+                if self.curriculum_full_finetune_count <= self.config.curriculum_learning_full_finetune_count:
+                    self.curriculum_full_finetune_count += 1
+                    print(f"Curriculum full finetune count: {self.curriculum_full_finetune_count}")
+                else:
+                    self.training_monitor.reset_curriculum_learning()
+                    self.curriculum_full_finetune_count = 0
+                    print(f"Resetting curriculum learning to full finetune")
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
