@@ -26,6 +26,11 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
         batch_size = clean_images.shape[0]
         timesteps = torch.randint(time_step_low_bound, time_step_high_bound, (batch_size,), device=clean_images.device).long()
 
+
+        target = noise_scheduler.get_velocity(clean_images, noise, timesteps)
+
+        # target = noise
+
         noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
 
         if "label" in batch:
@@ -34,7 +39,7 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
             class_labels = torch.zeros(clean_images.shape[0], dtype=torch.long, device=clean_images.device)
 
         pred = model(noisy_images, timesteps, class_labels, return_dict=False)[0]
-        loss = F.mse_loss(pred, noise, reduction="none")
+        loss = F.mse_loss(pred, target, reduction="none")
         loss = loss.mean()
 
         time_step_group_loss += loss.item()
@@ -46,10 +51,27 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
 def load_training_runs_config():
     """Configure the training runs to compare"""
     training_runs = {
-        "Baseline": {
-            "folder": "DiT20250815_133251",
-            "checkpoints": [ "1049", "1099", "1149", "1199", "1249", "1299", "1349"],
-        },
+        # "Baseline": {
+        #     "folder": "DiT20250815_133251",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749"]
+        # },
+
+        # "epsilon reverse uni sample":{
+        #     "folder": "DiT20250821_005658",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749"]
+        # },
+
+        # "FF epsilon reverse":{
+        #     "folder": "DiT20250822_030828",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749"]
+        # },
+
+        # "FF epsilon":{
+        #     "folder": "DiT20250822_025707",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749"]
+        # },
+
+
         # "Currc Start high": {
         #     "folder": "DiT20250815_133041", 
         #     "checkpoints": ["0099", "0199", "0299", "0399", "0499", "0599", "0699", "0799", "0899", "0999", "1099", "1199", "1299", "1399", "1499", "1599", "1699", "1799", "1899", "1999", "2099"],
@@ -71,11 +93,63 @@ def load_training_runs_config():
         # },
 
 
-        "floor 60% second round":{
-            "folder": "DiT20250818_021738",
-            "checkpoints": ["0299", "0349", "0399", "0449", "0499", "0549", "0599"],
-        }
-        
+        # "floor 60% second round":{
+        #     "folder": "DiT20250818_021738",
+        #     "checkpoints": ["0299", "0349", "0399", "0449", "0499", "0549", "0599"],
+        # },
+
+        # "v-prediction full rank baseline":{
+        #     "folder": "DiT20250820_181052",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699"]
+        # }, 
+
+        "v-prediction galor baseline":{
+            "folder": "DiT20250821_002417",
+            "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549"]
+        },
+
+        # "V galore KD 50":{
+        #     "folder": "DiT20250821_011658",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        # },
+
+        # "V galore KD 10":{
+        #     "folder": "DiT20250821_012447",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949"]
+        # },
+
+        # "v reverse uni sample":{
+        #     "folder": "DiT20250821_005914",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549"]
+        # },
+
+        # "v reverse FF uni sample":{
+        #     "folder": "DiT20250822_143237",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499"]
+        # },
+
+        "v reverse FF uni sample":{
+            "folder": "DiT20250822_192914",
+            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284", "0299", "0314", "0329", "0344", "0359"]
+        },
+
+        "v reverse uni sample old":{
+            "folder": "DiT20250822_192436",
+            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284"]
+        },
+
+        # "full rank curriculum epsilon prediction uni sampling":{
+        #     "folder": "DiT20250821_161119",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249"]
+        # },  
+
+        # "full rank baseline epsilon prediction uni sampling":{
+        #     "folder": "DiT20250821_202015",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249"]
+        # },  
+
+
+
         # Add more training runs as needed
         # "Low Rank R=32": {
         #     "folder": "another_folder",
@@ -107,13 +181,34 @@ def main():
     all_results = {}
     
     print("Processing training runs...")
-    print("=" * 80)
-    
+    print("=" * 80)        
+
+    tansform_dict = {}
+
     # Process each training run
     for run_name, run_config in training_runs.items():
         print(f"\nProcessing {run_name}...")
-        
-        # Initialize storage for this run
+
+
+        curriculum_transform_path = Path(__file__).parent.parent / "logs" / run_config["folder"] / "curriculum_swap_epoch_list.pt"
+        if curriculum_transform_path.exists():
+            curriculum_transform = torch.load(curriculum_transform_path)
+            print(f"Curriculum transform for {run_name}: {curriculum_transform}")
+            if "reverse" not in run_name.lower():
+                curriculum_transform.reverse()
+            tansform_dict[run_name] = curriculum_transform
+
+            print(tansform_dict)
+
+
+        results_path = Path(__file__).parent.parent / "logs" / run_config["folder"] / f"all_results_{run_name}.pt"
+        if results_path.exists():
+            all_results[run_name] = torch.load(results_path)
+            print(f"Loaded existing results for {run_name}")
+            continue
+
+
+        # Initialize storage for thrun_nameis run
         all_results[run_name] = {i: [] for i in range(num_timestep_groups)}
         checkpoint_numbers = [int(ckpt) for ckpt in run_config["checkpoints"]]
         
@@ -147,8 +242,9 @@ def main():
                 )
                 
                 all_results[run_name][group_idx].append(group_loss)
-                
+
             print(f"    Completed checkpoint {checkpoint}")
+            torch.save(all_results[run_name], Path(__file__).parent.parent / "logs" / run_config["folder"] / f"all_results_{run_name}.pt")
     
     print("\nGenerating plots...")
     print("=" * 80)
@@ -162,8 +258,24 @@ def main():
         time_step_low = training_group_boundaries[group_idx]
         time_step_high = training_group_boundaries[group_idx + 1]
         
-        # Set filtering threshold based on group
-        filter_threshold = 0.4 if group_idx == 0 else 0.2
+        # # Set filtering threshold based on group
+        # if group_idx == 0:
+        #     filter_threshold = 0.5
+        # elif group_idx == 1:
+        #     filter_threshold = 0.3
+        # elif group_idx == 2:
+        #     filter_threshold = 0.2
+        # else:
+        #     filter_threshold = 0.1
+
+        if group_idx == 0:
+            filter_threshold = 0.8
+        elif group_idx == 1 or group_idx == 9:
+            filter_threshold = 0.5
+        elif group_idx == 2 or group_idx == 8:
+            filter_threshold = 0.3
+        else:
+            filter_threshold = 0.1
         
         plt.figure(figsize=(12, 8))
         
@@ -171,8 +283,6 @@ def main():
         for run_idx, (run_name, run_config) in enumerate(training_runs.items()):
             if group_idx in all_results[run_name] and all_results[run_name][group_idx]:
                 checkpoint_numbers = [int(ckpt) for ckpt in run_config["checkpoints"]]
-                if run_name == "floor 60% second round":
-                    checkpoint_numbers = [int(ckpt)+750 for ckpt in run_config["checkpoints"]]
                 losses = all_results[run_name][group_idx]
                 
                 # Ensure we have the same number of checkpoints and losses
@@ -210,12 +320,28 @@ def main():
         plt.yscale('log')
         plt.title(f'Training Loss Comparison - Timestep Group {group_idx}\n(Timesteps {time_step_low}-{time_step_high}) [Filtered: loss ≤ {filter_threshold}]', 
                  fontsize=16, fontweight='bold')
-        plt.legend(fontsize=12)
         plt.grid(True, alpha=0.3)
+
+        # Define different line styles for vertical lines
+        vertical_line_styles = ['--', '-.', ':', '-']
+        colors = ['red', 'blue', 'green', 'purple']
+        
+        for run_idx, run_name in enumerate(tansform_dict.keys()):
+            print(run_name)
+            if group_idx in tansform_dict[run_name]:
+                transform_location_for_group = tansform_dict[run_name][group_idx]
+            else:
+                continue
+            v_line_style = vertical_line_styles[run_idx % len(vertical_line_styles)]
+            v_color = colors[run_idx % len(colors)]
+            plt.axvline(x=transform_location_for_group, linestyle=v_line_style, color=v_color,  alpha=0.7, linewidth=3, label=f'Curriculum Swap {run_name}')
+
+        plt.legend(fontsize=12)
         plt.tight_layout()
+
         
         # Save individual plot
-        output_path = Path(__file__).parent.parent / "logs" / f"test_floor_timestep_group_{group_idx}_comparison.png"
+        output_path = Path(__file__).parent.parent / "logs"  /"DiT20250822_192914"/ f"timestep_group_{group_idx}_comparison.png"
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved plot for timestep group {group_idx} to {output_path}")
         
@@ -253,7 +379,7 @@ def main():
     plt.tight_layout()
     
     # Save summary plot
-    summary_output_path = Path(__file__).parent.parent / "logs" / f"test_floor_all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
+    summary_output_path = Path(__file__).parent.parent / "logs" / "DiT20250822_192914"/ f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
     plt.savefig(summary_output_path, dpi=300, bbox_inches='tight')
     print(f"Saved summary plot to {summary_output_path}")
     plt.show()

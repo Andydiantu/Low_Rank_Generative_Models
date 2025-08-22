@@ -82,7 +82,7 @@ class Eval:
         self.fid.reset()
         return {"fid": fid_score.item()}
 
-def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, save_path=None):
+def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, curriculum_swap_epoch_list = [], save_path=None):
     """
     Plot training and validation loss curves.
     
@@ -102,10 +102,46 @@ def plot_loss_curves(validation_epochs, train_loss, val_loss, ema_val_loss, save
     plt.plot(train_epochs, train_loss, label='Training Loss')
     plt.plot(val_epochs, val_loss, label='Validation Loss')
     plt.plot(val_epochs, ema_val_loss, label='EMA Validation Loss')
+    # Add vertical lines for curriculum swap epochs
+    for swap_epoch in curriculum_swap_epoch_list:
+        plt.axvline(x=swap_epoch, color='red', linestyle='--', alpha=0.7, linewidth=1)
     
+    # Add legend entry for curriculum swap lines if any exist
+    if curriculum_swap_epoch_list:
+        plt.axvline(x=curriculum_swap_epoch_list[0], color='red', linestyle='--', alpha=0.7, linewidth=1, label='Curriculum Swap')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Training and Validation Loss Curves')
+    plt.yscale('log')  # Set y-axis to logarithmic scale
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    if save_path:
+        plt.savefig(save_path, dpi=500)
+
+    plt.close()
+    
+def plot_kd_loss_curves(train_kd_loss, current_train_group_loss, save_path=None):
+    """
+    Plot training and validation loss curves.
+    
+    Args:
+        validation_epochs: How often validation loss is calculated (every n epochs)
+        train_loss: List of training losses (one per epoch)
+        val_loss: List of validation losses (one every validation_epochs)
+        ema_val_loss: List of EMA validation losses (one every validation_epochs)
+        save_path: Optional path to save the plot
+    """
+    # Create x-axis values
+    train_epochs = list(range(1, len(train_kd_loss) + 1))
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(train_epochs, train_kd_loss, label='Training KD Loss')
+    plt.plot(train_epochs, current_train_group_loss, label='Training Group Loss')
+    
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training group loss and KD Loss Curves')
     plt.yscale('log')  # Set y-axis to logarithmic scale
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)

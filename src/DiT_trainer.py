@@ -24,7 +24,7 @@ import numpy as np
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
-from eval import Eval, plot_loss_curves
+from eval import Eval, plot_loss_curves, plot_kd_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
 from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm
@@ -74,12 +74,16 @@ class DiTTrainer:
         self.validation_dataloader = validation_dataloader
         self.config = config
         self.train_loss_history = []
+        self.train_kd_loss_history = []
+        self.train_group_loss_history = []
         self.val_loss_history = []
         self.ema_val_loss_history = []
         self.eval = Eval(train_dataloader , config)
         
         self.curriculum_full_finetune_count = 0
         self.projection_loss_history = []
+
+        self.curriculum_swap_epoch_list = []
         
         # Add gradient variance tracking - per epoch approach
         self.epoch_gradient_norms = []  # Store gradient norms for current epoch
@@ -119,10 +123,26 @@ class DiTTrainer:
         )
         self.ema_model = EMAModel(
             parameters=self.model.parameters(),
-            decay=0.9999,
+            decay=0.9995,
             use_ema_warmup=True,
             power = 0.75, 
         )
+        
+        # Load pretrained EMA if specified
+        if config.load_pretrained_ema:
+            ema_path = Path(__file__).parent.parent / config.pretrained_ema_path
+            print(f"Loading pretrained EMA model from {ema_path}")
+            ema_state_dict = torch.load(ema_path)
+            
+            # Load EMA weights into a temporary model to transfer to EMA
+            temp_model_state = {k: v.clone() for k, v in self.model.state_dict().items()}
+            self.model.load_state_dict(ema_state_dict)
+            self.ema_model.store(self.model.parameters())
+            self.ema_model.copy_to(self.model.parameters())
+            
+            # Restore original model state
+            self.model.load_state_dict(temp_model_state)
+            print("EMA loading complete")
 
         if config.vae:
             self.vae = SD_VAE()
@@ -186,6 +206,8 @@ class DiTTrainer:
             epoch_frobenius_norm_loss = 0.0
             epoch_projection_loss = 0.0
             epoch_current_timestep_group_loss = 0.0
+            epoch_kd_loss = 0.0
+
             for step, batch in enumerate(train_dataloader):
                 clean_images = batch["img"].to(device)
                 if self.config.vae and not self.config.use_latents:
@@ -211,11 +233,18 @@ class DiTTrainer:
                     current_low_bound = current_group_boundaries[0]
                     current_high_bound = current_group_boundaries[1]
 
-                    if not trained_high_bound == trained_low_bound or True:
+                    if not trained_high_bound == trained_low_bound:
 
                         
-                        first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
-                        second_batch = batch_size - first_batch
+                        # first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
+                        # second_batch = batch_size - first_batch
+
+                        second_batch = int((trained_high_bound - trained_low_bound) / (self.noise_scheduler.config.num_train_timesteps) * batch_size)
+                        first_batch = batch_size - second_batch
+                        
+
+                        # print(f"first_batch: {first_batch}")
+                        # print(f"second_batch: {second_batch}")
                         
                         # First half: sample from [low_bound, high_bound]
                         timesteps_first_half = torch.randint(
@@ -227,12 +256,11 @@ class DiTTrainer:
 
 
                         timesteps_second_half = torch.randint(
-                            0,
-                            self.noise_scheduler.config.num_train_timesteps,
+                            trained_low_bound,
+                            trained_high_bound,
                             (second_batch,),
                             device=clean_images.device,
                         ).long()
-
 
                         timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
 
@@ -240,7 +268,6 @@ class DiTTrainer:
 
                         
                     else:
-
                         timesteps = torch.randint(
                             current_low_bound,
                             current_high_bound,
@@ -303,7 +330,6 @@ class DiTTrainer:
                 elif self.config.prediction_type == "v_prediction":
                     target = self.noise_scheduler.get_velocity(latents, noise, timesteps)
                 # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
-                        
 
                     
                 # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
@@ -315,18 +341,42 @@ class DiTTrainer:
                 # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
                 # print(loss_weight)
              
+                # loss = F.mse_loss(pred[:current_timestep_group_batch_size], target[:current_timestep_group_batch_size], reduction="none")
                 loss = F.mse_loss(pred, target, reduction="none")
 
+                # # Initialize KD_loss for all cases
+                # KD_loss = torch.tensor([0.0], device=device)
 
-                if self.config.curriculum_learning:
+                if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
                     loss_current_timestep_group = loss[:current_timestep_group_batch_size]
 
                     loss_current_timestep_group = loss_current_timestep_group.mean()
 
                     epoch_current_timestep_group_loss += loss_current_timestep_group.detach().item()
+                #     # Use EMA model as teacher: temporarily load EMA weights, run forward, then restore
+                #     if batch_size > current_timestep_group_batch_size:
+                #         with torch.no_grad():
+                #             was_training = model.training
+                #             ema_model.store(model.parameters())
+                #             ema_model.copy_to(model.parameters())
+                #             model.eval()
+                #             teacher_pred = model(
+                #                 noisy_images[current_timestep_group_batch_size:], timesteps[current_timestep_group_batch_size:], class_labels_input[current_timestep_group_batch_size:], return_dict=False
+                #             )[0]
+                #             ema_model.restore(model.parameters())
+                #             if was_training:
+                #                 model.train()
 
-                # loss = loss * loss_weight
+                            
+                #         KD_loss = F.mse_loss(pred[current_timestep_group_batch_size:], teacher_pred, reduction="none")
+                #         # print(f"KD_loss: {KD_loss.mean()}")
+
+                #         epoch_kd_loss += KD_loss.mean().detach().item()  * 10    
+                    
+                # loss = loss.mean() + KD_loss.mean() * 10
+
                 loss = loss.mean()
+
                     
                 # if self.config.low_rank_pretraining:
                 #     ortho_loss = self.config.ortho_loss_weight * sum(
@@ -415,8 +465,12 @@ class DiTTrainer:
             avg_epoch_frobenius_loss = epoch_frobenius_loss / len(train_dataloader)
             avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
             avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
+            avg_epoch_kd_loss = epoch_kd_loss / len(train_dataloader)
             avg_epoch_current_timestep_group_loss = epoch_current_timestep_group_loss / len(train_dataloader) if self.config.curriculum_learning else 0.0
             self.train_loss_history.append(avg_epoch_train_loss)
+            self.train_kd_loss_history.append(avg_epoch_kd_loss)
+            self.train_group_loss_history.append(avg_epoch_current_timestep_group_loss)
+            torch.save(self.train_group_loss_history, os.path.join(self.config.output_dir, "train_group_loss_history.pt"))
             if self.config.low_rank_gradient:
                 self.projection_loss_history.append(epoch_projection_loss.detach().cpu()/len(train_dataloader))
             torch.save(self.projection_loss_history, os.path.join(self.config.output_dir, "projection_loss_history.pt"))
@@ -440,15 +494,18 @@ class DiTTrainer:
 
             
             print(f"avg_epoch_current_timestep_group_loss: {avg_epoch_current_timestep_group_loss}")
+            print(f"avg_epoch_kd_loss: {avg_epoch_kd_loss}")
             # if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done():
             #     boundaries = self.training_monitor.get_current_group_range()
             #     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 # print(f"Validation loss: {val_loss}")
             if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
-                if self.training_monitor(avg_epoch_current_timestep_group_loss):
+                if self.training_monitor.call_improvement_RMA(avg_epoch_current_timestep_group_loss):
                     if self.config.low_rank_gradient:
                         self.optimizer.reset_projection_matrices()
                         print("Resetting projection matrices")
+                    self.curriculum_swap_epoch_list.append(epoch)
+                    torch.save(self.curriculum_swap_epoch_list, os.path.join(self.config.output_dir, "curriculum_swap_epoch_list.pt"))
                     print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
                     if self.training_monitor.get_if_curriculum_learning_is_done():
                         print("Curriculum learning is done")
@@ -457,14 +514,15 @@ class DiTTrainer:
                         print(f"Current timestep groups low bound: {boundaries[0]}") 
                         print(f"Current timestep groups high bound: {boundaries[1]}")
 
-            if self.config.curriculum_learning and self.training_monitor.get_if_curriculum_learning_is_done():
-                if self.curriculum_full_finetune_count <= self.config.curriculum_learning_full_finetune_count:
-                    self.curriculum_full_finetune_count += 1
-                    print(f"Curriculum full finetune count: {self.curriculum_full_finetune_count}")
-                else:
-                    self.training_monitor.reset_curriculum_learning()
-                    self.curriculum_full_finetune_count = 0
-                    print(f"Resetting curriculum learning to full finetune")
+            #### Muti round curriculum learning ####
+            # if self.config.curriculum_learning and self.training_monitor.get_if_curriculum_learning_is_done():
+            #     if self.curriculum_full_finetune_count <= self.config.curriculum_learning_full_finetune_count:
+            #         self.curriculum_full_finetune_count += 1
+            #         print(f"Curriculum full finetune count: {self.curriculum_full_finetune_count}")
+            #     else:
+            #         self.training_monitor.reset_curriculum_learning()
+            #         self.curriculum_full_finetune_count = 0
+            #         print(f"Resetting curriculum learning to full finetune")
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
@@ -485,8 +543,8 @@ class DiTTrainer:
                     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False)
                     self.val_loss_history.append(val_loss)
 
-                    plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, save_path=os.path.join(self.config.output_dir, "loss_curves.pdf"))
-
+                    plot_loss_curves(self.config.validation_epochs, self.train_loss_history, self.val_loss_history, self.ema_val_loss_history, self.curriculum_swap_epoch_list, save_path=os.path.join(self.config.output_dir, "loss_curves.pdf"))
+                    plot_kd_loss_curves(self.train_kd_loss_history, self.train_group_loss_history, save_path=os.path.join(self.config.output_dir, "kd_loss_curves.pdf"))
                 if (
                     (epoch + 1) % self.config.save_image_epochs == 0
                     or (epoch + 1) % self.config.save_model_epochs == 0
