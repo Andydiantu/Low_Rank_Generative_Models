@@ -27,7 +27,7 @@ from DiT import create_model, create_noise_scheduler, print_model_settings, prin
 from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm, TimestepConditionedWrapper
 
 
 
@@ -442,7 +442,7 @@ class DiTTrainer:
             #     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
                 # print(f"Validation loss: {val_loss}")
             if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
-                if self.training_monitor(avg_epoch_current_timestep_group_loss):
+                if self.training_monitor.call_simple_compare_best(avg_epoch_current_timestep_group_loss):
                     if self.config.low_rank_gradient:
                         self.optimizer.reset_projection_matrices()
                         print("Resetting projection matrices")
@@ -485,17 +485,28 @@ class DiTTrainer:
                     with torch.amp.autocast(device_type="cuda", enabled=False):
                         # Store original model parameters before applying EMA weights
                         original_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                        # Also store base model params for clean checkpoint saving
+                        if isinstance(model, TimestepConditionedWrapper):
+                            original_base_model_state = {k: v.cpu().clone() for k, v in model.base_model.state_dict().items()}
+                        else:
+                            original_base_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                         
                         # Copy EMA parameters to model for evaluation
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
                         model.eval()
                         
+                        # Ensure pipeline gets a plain DiT transformer (unwrap if needed)
+                        transformer_for_pipeline = model.base_model if isinstance(model, TimestepConditionedWrapper) else model
+                        
                         pipeline = DiTPipeline(
-                            transformer=model,
+                            transformer=transformer_for_pipeline,
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
+                        
+                        # Move pipeline to the correct device
+                        pipeline = pipeline.to(device)
                         
                         pipeline.set_progress_bar_config(disable=True)
 
@@ -514,15 +525,22 @@ class DiTTrainer:
                             (epoch + 1) % self.config.save_model_epochs == 0
                         ):
                             pipeline.save_pretrained(self.config.output_dir)
-                            # Save EMA model (which is currently in the model)
-                            torch.save(
-                                model.state_dict(),
-                                os.path.join(self.config.output_dir, f"EMA_model_{epoch:04d}.pt"),
-                            )
                             
-                            # Save original model from our saved state
+                            # Save EMA model weights for the underlying base model
+                            if isinstance(model, TimestepConditionedWrapper):
+                                torch.save(
+                                    model.base_model.state_dict(),
+                                    os.path.join(self.config.output_dir, f"EMA_model_{epoch:04d}.pt"),
+                                )
+                            else:
+                                torch.save(
+                                    model.state_dict(),
+                                    os.path.join(self.config.output_dir, f"EMA_model_{epoch:04d}.pt"),
+                                )
+                            
+                            # Save original (non-EMA) model weights for base model
                             torch.save(
-                                original_model_state,
+                                original_base_model_state,
                                 os.path.join(self.config.output_dir, f"model_{epoch:04d}.pt"),
                             )
 
@@ -591,7 +609,7 @@ class DiTTrainer:
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
             class_labels=[i % 10 for i in range(config.eval_batch_size)] if config.cfg_enabled else torch.zeros(config.eval_batch_size, dtype=torch.long),
-            generator = torch.Generator(device=self.model.device).manual_seed(config.seed),
+            generator = torch.Generator(device=next(self.model.parameters()).device).manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
             guidance_scale=config.guidance_scale if config.cfg_enabled else 1,
         ).images
@@ -733,7 +751,10 @@ def main():
     config = config_cls(**kwargs)
     # config = LDConfig()
     print_config(config)
-    
+
+    # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
+    # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
+
     train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
     validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
 
@@ -752,6 +773,14 @@ def main():
         model = low_rank_layer_replacement(model, percentage=config.low_rank_rank)
         print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
+        # Wrap with timestep conditioning if enabled
+        if config.timestep_conditioning:
+            model = TimestepConditionedWrapper(model, config)
+            print("Enabled timestep-conditioned rank scheduling")
+            print(f"  Schedule: {config.rank_schedule}")
+            print(f"  Min ratio: {config.rank_min_ratio}")
+            print(f"  Max timesteps: {config.num_training_steps}")
+            
     if config.load_pretrained_model:
         path = Path(__file__).parent.parent / config.pretrained_model_path
         print(f"Loading pretrained model from {path}")
@@ -783,6 +812,10 @@ def main():
             scheduler=noise_scheduler,
             vae=trainer.vae.vae if config.vae else trainer.vae,
         )
+
+        # Move pipeline to the correct device
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        compressed_pipeline = compressed_pipeline.to(device)
 
         compressed_pipeline.enable_attention_slicing()
         fid_score = finetune_trainer.eval.compute_metrics(compressed_pipeline)

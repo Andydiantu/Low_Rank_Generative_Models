@@ -1,9 +1,67 @@
 import torch
 import torch.nn as nn
+import math
 
+
+class TimestepConditionedWrapper(nn.Module):
+    """
+    Wrapper for DiT models to enable timestep-conditioned rank scheduling.
+    Stores current timesteps and config, then injects them into LowRankLinear layers.
+    """
+    def __init__(self, base_model, config):
+        super().__init__()
+        self.base_model = base_model
+        self.training_config = config  # Rename to avoid confusion
+        self.current_timesteps = None
+        
+        # Store reference to all LowRankLinear layers for timestep injection
+        self.low_rank_layers = []
+        self._collect_low_rank_layers(base_model)
+    
+    @property
+    def config(self):
+        """Forward config attribute to base model."""
+        return self.base_model.config
+    
+    @property
+    def dtype(self):
+        """Forward dtype attribute to base model."""
+        return self.base_model.dtype
+    
+    @property
+    def device(self):
+        """Forward device attribute to base model."""
+        return next(self.base_model.parameters()).device
+    
+    def _collect_low_rank_layers(self, module):
+        """Recursively collect all LowRankLinear layers."""
+        for child in module.children():
+            if isinstance(child, LowRankLinear):
+                self.low_rank_layers.append(child)
+            else:
+                self._collect_low_rank_layers(child)
+    
+    def forward(self, hidden_states, timestep=None, class_labels=None, **kwargs):
+        # Store timesteps for use in LowRankLinear layers
+        self.current_timesteps = timestep
+        
+        # Inject timestep conditioning function into each LowRankLinear layer
+        if self.training_config.timestep_conditioning and timestep is not None:
+            for layer in self.low_rank_layers:
+                layer._wrapper_timesteps = timestep
+                layer._wrapper_T = self.training_config.num_training_steps
+                layer._wrapper_config = self.training_config
+        
+        # Call the base model
+        return self.base_model(hidden_states, timestep, class_labels, **kwargs)
 
 
 class LowRankLinear(nn.Module):
+    """
+    Low-rank parameterization W ≈ U @ V with optional timestep-conditioned rank gating.
+    - Per-sample gating is done by masking the rank activations (x @ V.T) -> [B, r].
+    - If all items share the same active rank (common at inference), we optionally slice to save FLOPs.
+    """
     def __init__(self, in_features, out_features, rank, initialise=True):
         super().__init__()
         # Limit rank to the maximum possible rank for this layer
@@ -16,24 +74,135 @@ class LowRankLinear(nn.Module):
         
         self.bias = nn.Parameter(torch.Tensor(out_features))
         
+        # Attributes for wrapper integration
+        self._wrapper_timesteps = None
+        self._wrapper_T = None
+        self._wrapper_config = None
+        
         if initialise:
             # Initialize using standard linear init strategy
             self.reset_parameters()
+
     @torch.no_grad()
     def reset_parameters(self):
-
-        W_full = torch.empty(self.out_features, self.in_features)
+        # SVD init on a Xavier weight; splits singular values as sqrt(S) across U and V
+        W_full = torch.empty(self.out_features, self.in_features, device=self.U.device, dtype=self.U.dtype)
         nn.init.xavier_uniform_(W_full)
-
         U_, S_, Vh_ = torch.linalg.svd(W_full, full_matrices=False)
-        root_S = S_[: self.rank].sqrt()   
-
-        self.U.copy_(U_[:, : self.rank] * root_S)
-        self.V.copy_(Vh_[: self.rank, :] * root_S.view(-1, 1))        
+        k = self.rank
+        root_S = S_[:k].sqrt()
+        self.U.copy_(U_[:, :k] * root_S)                # [out, k]
+        self.V.copy_(Vh_[:k, :] * root_S.view(-1, 1))   # [k, in]
         nn.init.constant_(self.bias, 0)
 
-    def forward(self, x):
-        return nn.functional.linear(x, self.U @ self.V, self.bias)
+    def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing"):
+        """
+        Map per-sample timestep t -> active rank r(t).
+        t: [B] int/float tensor; T: scalar max timestep.
+        schedule: 'decreasing' | 'increasing' | 'midpeak'
+        """
+        r = self.rank
+        r_min = max(1, int(round(r_min_ratio * r)))
+        t = t.to(self.U.device)
+        T = torch.as_tensor(T, device=self.U.device, dtype=t.dtype)
+
+        if schedule == "decreasing":
+            # At t=0: r_full, at t=T: r_min
+            r_t = (r_min + (r - r_min) * (T - t) / T).floor().clamp(min=r_min, max=r)
+        elif schedule == "increasing":
+            # At t=0: r_min, at t=T: r_full
+            r_t = (r_min + (r - r_min) * (t / T)).floor().clamp(min=r_min, max=r)
+        elif schedule == "midpeak":
+            # simple tent peaking at T/2; swap for log-SNR if you prefer
+            mid = 0.5 * T
+            left  = (t <= mid).to(t.dtype) * (t / mid)
+            right = (t >  mid).to(t.dtype) * ((T - t) / (T - mid + 1e-8))
+            frac = torch.maximum(left, right)
+            r_t = (r_min + (r - r_min) * frac).floor().clamp(min=r_min, max=r)
+        else:
+            raise ValueError("Unknown schedule")
+        return r_t.to(torch.long)  # [B]
+
+    def forward(
+        self,
+        x,
+        t: torch.Tensor = None,      # [B] timesteps (optional). If None -> no gating.
+        T: int | float = None,       # max timestep (required if t is given)
+        *,
+        r_min_ratio: float = 0.5,
+        schedule: str = "decreasing",
+        slice_if_uniform: bool = True,   # if all r_t equal, slice U/V to save FLOPs
+        return_mask: bool = False
+    ):
+        """
+        x: [B, in_features]
+        Returns: y [B, out_features] (and optionally the boolean mask [B, r])
+        """
+        
+        # Check if timestep conditioning is enabled via wrapper
+        if (self._wrapper_timesteps is not None and 
+            self._wrapper_config is not None and 
+            self._wrapper_config.timestep_conditioning):
+            t = self._wrapper_timesteps
+            T = self._wrapper_T
+            r_min_ratio = self._wrapper_config.rank_min_ratio
+            schedule = self._wrapper_config.rank_schedule
+        
+        if t is None:
+            # Baseline path: full rank, standard low-rank multiply
+            # (x @ V.T) -> [B, r], then -> [B, out]
+            Ax = nn.functional.linear(x, self.V)          # [B, r]
+            y = nn.functional.linear(Ax, self.U, self.bias)
+            return (y, None) if return_mask else y
+
+        # Handle batch size mismatch between patches and timesteps
+        B_x = x.shape[0]  # Actual batch size (could be patches)
+        B_t = t.shape[0]  # Original timestep batch size
+        
+        # Smart timestep handling for different processing levels
+        if B_x == B_t:
+            # Same batch size - direct use (image-level processing)
+            t_expanded = t
+        elif B_x % B_t == 0:
+            # Batch size is a multiple - likely patch-level processing
+            patches_per_image = B_x // B_t
+            t_expanded = t.repeat_interleave(patches_per_image)  # [B_x]
+        else:
+            # Unexpected batch relationship: expand by nearest-repeat and trim/pad
+            repeat = math.ceil(B_x / B_t)
+            t_expanded = t.repeat_interleave(repeat)
+            if t_expanded.shape[0] > B_x:
+                t_expanded = t_expanded[:B_x]
+            elif t_expanded.shape[0] < B_x:
+                pad = B_x - t_expanded.shape[0]
+                t_expanded = torch.cat([t_expanded, t_expanded[-1:].expand(pad)], dim=0)
+
+        # Per-sample active ranks
+        r_t = self._active_ranks(t_expanded, T, r_min_ratio=r_min_ratio, schedule=schedule)  # [B_x]
+        r = self.rank
+        # print(f"r_t: {r_t}")
+        idx = torch.arange(r, device=x.device)
+        mask = (idx.unsqueeze(0) < r_t.unsqueeze(1))  # [B_x, r] bool
+
+        if slice_if_uniform and bool(torch.all(r_t == r_t[0])):  # whole batch shares same rank -> slice
+            r_active = int(r_t[0].item())
+            Ax = nn.functional.linear(x, self.V[:r_active, :])              # [B_x, r_active] or [B_x, patches, r_active]
+            y = nn.functional.linear(Ax, self.U[:, :r_active], self.bias)   # [B_x, out] or [B_x, patches, out]
+            return (y, mask) if return_mask else y
+
+        # General case: mixed timesteps in batch -> mask activations (one vectorized forward)
+        Ax = nn.functional.linear(x, self.V)                # [B_x, r] or [B_x, patches, r]
+        
+        # Handle both 2D and 3D tensor formats
+        if Ax.dim() == 3:
+            # 3D: [batch, patches, rank] - expand mask to [batch, 1, rank] for broadcasting
+            mask = mask.unsqueeze(1)  # [B_x, 1, r] - broadcasts with [B_x, patches, r]
+        # else: 2D case [batch, rank] - mask already correct shape [B_x, r]
+        
+        Ax = Ax * mask
+
+        y  = nn.functional.linear(Ax, self.U, self.bias)    # [B_x, out]
+        return (y, mask) if return_mask else y
     
     def svd_decomposition(self, base_linear, rank=None, threshold=None):
         if(rank is None and threshold is None):
@@ -131,7 +300,7 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
     
 #     return module
 
-def low_rank_layer_replacement(module, percentage, prefix=""):
+def low_rank_layer_replacement(module, percentage, prefix="", enable_timestep_conditioning=False):
     # Replace all Linear layers with LowRankLinear
     for name, child in module.named_children():
         # Build the full path name
@@ -156,7 +325,7 @@ def low_rank_layer_replacement(module, percentage, prefix=""):
             setattr(module, name, new_layer)
 
         else:
-            low_rank_layer_replacement(child, percentage, prefix=full_name)
+            low_rank_layer_replacement(child, percentage, prefix=full_name, enable_timestep_conditioning=enable_timestep_conditioning)
     
     return module
 

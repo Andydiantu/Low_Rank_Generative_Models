@@ -16,14 +16,14 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
     lr_warmup_steps: int = 3000
-    validation_epochs: int = 50
-    save_image_epochs: int = 50
-    save_model_epochs: int = 50
-    evaluate_fid_epochs: int = 150
-    # validation_epochs: int = 1 # for testing
-    # save_image_epochs: int = 1 # for testing
-    # save_model_epochs: int = 1 # for testing
-    # evaluate_fid_epochs: int = 1 # for testing
+    # validation_epochs: int = 50
+    # save_image_epochs: int = 50
+    # save_model_epochs: int = 50
+    # evaluate_fid_epochs: int = 150
+    validation_epochs: int = 1 # for testing
+    save_image_epochs: int = 1 # for testing
+    save_model_epochs: int = 1 # for testing
+    evaluate_fid_epochs: int = 3 # for testing
     eval_dataset_size: int = 1024
     noise_scheduler: str = "DDIM"
     num_training_steps: int = 1000
@@ -31,7 +31,7 @@ class TrainingConfig:
     cfg_enabled: bool = True
     unconditional_prob: float = 0.1
     guidance_scale: float = 2
-    low_rank_pretraining: bool = False
+    low_rank_pretraining: bool = True
     ortho_loss_weight: float = 1e-1 
     frobenius_loss_weight: float = 1e-5
     nuclear_norm_loss: bool = False
@@ -40,9 +40,13 @@ class TrainingConfig:
     frobenius_norm_loss_weight: float = 1e-6
     low_rank_rank: float = 0.25
     low_rank_compression: bool = False
-    low_rank_gradient: bool = True
+    low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
-    curriculum_learning: bool = True
+    # Timestep-conditioned rank scheduling
+    timestep_conditioning: bool = True
+    rank_schedule: str = "decreasing"  # "decreasing", "increasing", "midpeak"
+    rank_min_ratio: float = 0.5
+    curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
     curriculum_learning_timestep_num_groups: int = 15
     curriculum_learning_current_group_portion: float = 0.8
