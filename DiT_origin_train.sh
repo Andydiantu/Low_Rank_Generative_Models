@@ -13,4 +13,14 @@ uptime
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set curriculum_learning_gradual_patience=5 --set curriculum_learning_gradual_start=45 --set curriculum_learning_gradual_step_size=50 --set curriculum_learning_gradual_start_alpha=0.00 --set curriculum_learning_gradual_end_alpha=0.10 --set gradual_curriculum_learning_num_epochs=120 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+# timestamp=$(date +"%Y%m%d_%H%M%S")
+# mkdir -p tmux_log/$(date +%m%d)
+# python -u src/DiT_trainer.py --set curriculum_learning_gradual_patience=5 --set curriculum_learning_gradual_start=844 --set curriculum_learning_gradual_step_size=25 --set curriculum_learning_gradual_start_alpha=0.05 --set curriculum_learning_gradual_end_alpha=0.3 --set gradual_curriculum_learning_num_epochs=200 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+# timestamp=$(date +"%Y%m%d_%H%M%S")
+# mkdir -p tmux_log/$(date +%m%d)
+# python -u src/DiT_trainer.py --set curriculum_learning_gradual_patience=5 --set curriculum_learning_gradual_start=844 --set curriculum_learning_gradual_step_size=13 --set curriculum_learning_gradual_start_alpha=0.05 --set curriculum_learning_gradual_end_alpha=0.3 --set gradual_curriculum_learning_num_epochs=400 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt

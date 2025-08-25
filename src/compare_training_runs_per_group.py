@@ -9,6 +9,14 @@ from preprocessing import create_dataloader
 from config import TrainingConfig
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import plotly.io as pio
+
+# Note: For PNG export, you may need to install kaleido: pip install kaleido
+
+
 
 
 @torch.no_grad()
@@ -27,9 +35,9 @@ def calculate_time_step_group_loss(time_step_low_bound, time_step_high_bound, mo
         timesteps = torch.randint(time_step_low_bound, time_step_high_bound, (batch_size,), device=clean_images.device).long()
 
 
-        target = noise_scheduler.get_velocity(clean_images, noise, timesteps)
+        # target = noise_scheduler.get_velocity(clean_images, noise, timesteps)
 
-        # target = noise
+        target = noise
 
         noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
 
@@ -54,6 +62,7 @@ def load_training_runs_config():
         # "Baseline": {
         #     "folder": "DiT20250815_133251",
         #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749"]
+        #     # "checkpoints": ["0049", "0099", "0149", "0199"]
         # },
 
         # "epsilon reverse uni sample":{
@@ -103,10 +112,10 @@ def load_training_runs_config():
         #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699"]
         # }, 
 
-        "v-prediction galor baseline":{
-            "folder": "DiT20250821_002417",
-            "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549"]
-        },
+        # "v-prediction galor baseline":{
+        #     "folder": "DiT20250821_002417",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549"]
+        # },
 
         # "V galore KD 50":{
         #     "folder": "DiT20250821_011658",
@@ -128,26 +137,214 @@ def load_training_runs_config():
         #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499"]
         # },
 
-        "v reverse FF uni sample":{
-            "folder": "DiT20250822_192914",
-            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284", "0299", "0314", "0329", "0344", "0359"]
-        },
+        # "v reverse FF uni sample":{
+        #     "folder": "DiT20250822_192914",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284", "0299", "0314", "0329", "0344", "0359"]
+        # },
 
-        "v reverse uni sample old":{
-            "folder": "DiT20250822_192436",
-            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284"]
-        },
+        # "v reverse uni sample old":{
+        #     "folder": "DiT20250822_192436",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284"]
+        # },
 
         # "full rank curriculum epsilon prediction uni sampling":{
         #     "folder": "DiT20250821_161119",
-        #     "checkpoints": ["0049", "0099", "0149","0199","0249"]
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249", "0299", "0349"]
         # },  
 
         # "full rank baseline epsilon prediction uni sampling":{
         #     "folder": "DiT20250821_202015",
-        #     "checkpoints": ["0049", "0099", "0149","0199","0249"]
+        #     # "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        #     "checkpoints": ["0049", "0099", "0149", "0199"]
         # },  
 
+        # "full rank FF unifrom sampling 0.01":{
+        #     "folder": "DiT20250822_230533",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209", "0224", "0239", "0254", "0269", "0284", "0299", "0314"]
+        # },
+
+        # "full rank FF unifrom sampling 0.05":{
+        #     "folder": "DiT20250823_005407",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164"]
+        # },
+
+        # "full rank FF unifrom sampling 0.05 five groups":{
+        #     "folder": "DiT20250823_105806",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149", "0164", "0179", "0194", "0209",]
+        # },
+
+        # "full rank fix round 5 group":{
+        #     "folder": "DiT20250823_141048",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134", "0149"]
+        # },
+
+        # "full rank fix round 5 group start 44":{
+        #     "folder": "DiT20250823_144235",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+
+        # "full rank fix round 5 group start 29":{
+        #     "folder": "DiT20250823_143032",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", ]
+        # },
+
+        # "full rank fix round 5 group start 44 start high":{
+        #     "folder": "DiT20250823_151919",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104"]
+        # },
+
+        # "full rank fix gradual 150":{
+        #     "folder": "DiT20250823_195526",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full rank fix gradual 45":{
+        #     "folder": "DiT20250823_195610",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full rank fix gradual 45 faster":{
+        #     "folder": "DiT20250823_211341",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full rank fix gradual 150 faster":{
+        #     "folder": "DiT20250823_211856",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104"]
+        # },
+
+        # "full rank fix gradual 45 preview 0.3":{
+        #     "folder": "DiT20250823_220826",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full rank fix gradual 45 preview 0.5":{
+        #     "folder": "DiT20250823_220957",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full dataset baseline":{
+        #     "folder": "DiT20250823_154440",
+        #     "checkpoints": ["0014", "0029", "0044", "0059"]
+        # },
+
+        # "full dataset start low fix 15":{
+        #     "folder": "DiT20250823_154059",
+        #     "checkpoints": ["0014", "0029", "0044", "0059"]
+        # },
+
+        # "full rank fix gradual reverse 966 preview 0.5":{
+        #     "folder": "DiT20250824_000320",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+        # "full rank fix gradual reverse 844 preview 0.5":{
+        #     "folder": "DiT20250824_000436",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119"]
+        # },
+
+
+        # "full rank fix gradual 100 preview 0.3":{
+        #     "folder": "DiT20250824_010517",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        # },
+
+        # "full rank fix gradual 200 preview 0.3":{
+        #     "folder": "DiT20250824_055017",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        # },
+
+        # "full rank fix gradual 100 preview 0.15":{
+        #     "folder": "DiT20250824_010653",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        # },
+
+        # "full rank fix gradual 200 preview 0.15":{
+        #     "folder": "DiT20250824_055446",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        # },
+
+        # "full rank fix gradual 400 preview 0.3":{
+        #     "folder": "DiT20250824_100815",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999"]
+        # },
+
+        # "full rank fix gradual 400 preview 0.15":{
+        #     "folder": "DiT20250824_101649",
+        #     "checkpoints": ["0049", "0099", "0149","0199","0249" , "0299", "0349","0399", "0449", "0499", "0549",  "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999"]
+        # },
+
+        # "full rank fix gradual 100 preview 0.3":{
+        #     "folder": "DiT20250824_134940",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "full rank fix gradual 100 preview 0.15":{
+        #     "folder": "DiT20250824_135324",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "full rank fix start low gradual 100 preview 0.1":{
+        #     "folder": "DiT20250824_151135",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "full rank fix start low gradual 100 preview 0.15":{
+        #     "folder": "DiT20250824_151300",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "full rank fix start low 44 gradual 120 preview 0 - 0.1":{
+        #     "folder": "DiT20250824_163306",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "full rank fix start low 44 gradual 120 preview 0.05 - 0.1":{
+        #     "folder": "DiT20250824_163307",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]        
+        # },
+
+        # "Galore fix start low 44 gradual 120 preview 0 - 0.1":{
+        #     "folder": "DiT20250824_171633",
+        #     "checkpoints": ["0014", "0044", "0074", "0104", "0134", "0164", "0194", "0224", "0254", "0284", "0314", "0344", "0374", "0404", "0434", "0464", "0494", "0524", "0554", "0584", "0614", "0644"]
+        # },
+
+
+        # "Galore fix start low 44 gradual 120 preview 0.05 - 0.1":{
+        #     "folder": "DiT20250824_171643",
+        #     "checkpoints": ["0014", "0044", "0074", "0104", "0134", "0164", "0194", "0224", "0254", "0284", "0314", "0344", "0374", "0404", "0434", "0464", "0494", "0524", "0554", "0584", "0614", "0644"]
+        # },
+
+        # "Batch 128 Galore fix start low 44 gradual 120 preview 0 - 0.1":{
+        #     "folder": "DiT20250824_210421",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        # },
+
+        # "Batch 128 Galore baseline":{
+        #     "folder": "DiT20250824_194516",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        # },
+
+        # "Batch 128 Galore full dataset fix start low 44 gradual 120 preview 0.05 - 0.1":{
+        #     "folder": "DiT20250824_221139",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        # },
+
+        # "Batch 128 Galore full dataset baseline":{
+        #     "folder": "DiT20250824_221301",
+        #     "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        # },
+
+        "low rank parameterisation baseline":{
+            "folder": "DiT20250825_002435",
+            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        },
+
+        "low rank parameterisation fix start low 44 gradual 120 preview 0.05 - 0.1":{
+            "folder": "DiT20250825_004507",
+            "checkpoints": ["0014", "0029", "0044", "0059", "0074", "0089", "0104", "0119", "0134"]
+        },
 
 
         # Add more training runs as needed
@@ -169,6 +366,9 @@ def main():
     # Timestep group boundaries
     num_timestep_groups = 10
     training_group_boundaries = [0, 44, 123, 234, 371, 520, 667, 796, 897, 966, 1000]
+
+    # num_timestep_groups = 5
+    # training_group_boundaries =  [0, 133, 372, 653, 881, 1000]
     
     # Load training runs configuration
     training_runs = load_training_runs_config()
@@ -223,9 +423,10 @@ def main():
             # Create and load model
             model = create_model(config)
             
-            # # Apply low rank compression if specified
-            # if run_config.get("low_rank", False):
-            #     model = low_rank_layer_replacement(model, rank=run_config.get("rank", 64))
+            # Apply low rank compression if specified
+            model = low_rank_layer_replacement(model, percentage=0.25)
+            print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+
                 
             model.to(device)
             model.load_state_dict(torch.load(load_pretrain_model_path))
@@ -249,16 +450,18 @@ def main():
     print("\nGenerating plots...")
     print("=" * 80)
     
-    # Create plots - one per timestep group
-    colors = plt.cm.tab10(range(len(training_runs)))
-    line_styles = ['-', '--', '-.', ':']
-    markers = ['o', 's', '^', 'v', 'D', 'P', '*', 'X']
+    # Define colors and line styles for plotly
+    plotly_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    line_styles = ['solid', 'dash', 'dashdot', 'dot']
+    plotly_markers = ['circle', 'square', 'triangle-up', 'triangle-down', 'diamond', 'cross', 'x', 'star']
     
     for group_idx in range(num_timestep_groups):
         time_step_low = training_group_boundaries[group_idx]
         time_step_high = training_group_boundaries[group_idx + 1]
+
+        filter_threshold = 1
         
-        # # Set filtering threshold based on group
+        # Set filtering threshold based on group
         # if group_idx == 0:
         #     filter_threshold = 0.5
         # elif group_idx == 1:
@@ -268,16 +471,17 @@ def main():
         # else:
         #     filter_threshold = 0.1
 
-        if group_idx == 0:
-            filter_threshold = 0.8
-        elif group_idx == 1 or group_idx == 9:
-            filter_threshold = 0.5
-        elif group_idx == 2 or group_idx == 8:
-            filter_threshold = 0.3
-        else:
-            filter_threshold = 0.1
+        # if group_idx == 0:
+        #     filter_threshold = 0.8
+        # elif group_idx == 1 or group_idx == 9:
+        #     filter_threshold = 0.5
+        # elif group_idx == 2 or group_idx == 8:
+        #     filter_threshold = 0.3
+        # else:
+        #     filter_threshold = 0.1
         
-        plt.figure(figsize=(12, 8))
+        # Create plotly figure
+        fig = go.Figure()
         
         # Plot each training run for this timestep group
         for run_idx, (run_name, run_config) in enumerate(training_runs.items()):
@@ -288,6 +492,12 @@ def main():
                 # Ensure we have the same number of checkpoints and losses
                 min_length = min(len(checkpoint_numbers), len(losses))
                 checkpoint_numbers = checkpoint_numbers[:min_length]
+                if run_name == "full rank fix round 5 group start 44":
+                    checkpoint_numbers = [ckpt + 45 for ckpt in checkpoint_numbers]
+                if run_name == "full rank fix round 5 group start 29":
+                    checkpoint_numbers = [ckpt + 30 for ckpt in checkpoint_numbers]
+                if run_name == "full rank fix round 5 group start 44 start high":
+                    checkpoint_numbers = [ckpt + 45 for ckpt in checkpoint_numbers]
                 losses = losses[:min_length]
                 
                 # Filter out values above threshold
@@ -307,24 +517,22 @@ def main():
                 
                 # Only plot if we have data after filtering
                 if filtered_checkpoints:
-                    color = colors[run_idx % len(colors)]
+                    color = plotly_colors[run_idx % len(plotly_colors)]
                     line_style = line_styles[run_idx % len(line_styles)]
-                    marker = markers[run_idx % len(markers)]
+                    marker = plotly_markers[run_idx % len(plotly_markers)]
                     
-                    plt.plot(filtered_checkpoints, filtered_losses,
-                            marker=marker, linewidth=2.5, markersize=8,
-                            label=run_name, linestyle=line_style, color=color)
+                    fig.add_trace(go.Scatter(
+                        x=filtered_checkpoints,
+                        y=filtered_losses,
+                        mode='lines+markers',
+                        name=run_name,
+                        line=dict(color=color, width=2.5, dash=line_style),
+                        marker=dict(symbol=marker, size=8, color=color)
+                    ))
         
-        plt.xlabel('Checkpoint', fontsize=14)
-        plt.ylabel('Training Loss (log scale)', fontsize=14)
-        plt.yscale('log')
-        plt.title(f'Training Loss Comparison - Timestep Group {group_idx}\n(Timesteps {time_step_low}-{time_step_high}) [Filtered: loss ≤ {filter_threshold}]', 
-                 fontsize=16, fontweight='bold')
-        plt.grid(True, alpha=0.3)
-
-        # Define different line styles for vertical lines
-        vertical_line_styles = ['--', '-.', ':', '-']
-        colors = ['red', 'blue', 'green', 'purple']
+        # Add vertical lines for curriculum swaps
+        vertical_line_colors = ['red', 'blue', 'green', 'purple']
+        vertical_line_styles = ['dash', 'dashdot', 'dot', 'solid']
         
         for run_idx, run_name in enumerate(tansform_dict.keys()):
             print(run_name)
@@ -333,20 +541,55 @@ def main():
             else:
                 continue
             v_line_style = vertical_line_styles[run_idx % len(vertical_line_styles)]
-            v_color = colors[run_idx % len(colors)]
-            plt.axvline(x=transform_location_for_group, linestyle=v_line_style, color=v_color,  alpha=0.7, linewidth=3, label=f'Curriculum Swap {run_name}')
+            v_color = vertical_line_colors[run_idx % len(vertical_line_colors)]
+            
+            fig.add_vline(
+                x=transform_location_for_group,
+                line=dict(color=v_color, width=3, dash=v_line_style),
+                opacity=0.7,
+                annotation_text=f'Curriculum Swap {run_name}',
+                annotation_position="top"
+            )
 
-        plt.legend(fontsize=12)
-        plt.tight_layout()
+        # Update layout
+        fig.update_layout(
+            title=dict(
+                text=f'Training Loss Comparison - Timestep Group {group_idx}<br>(Timesteps {time_step_low}-{time_step_high}) [Filtered: loss ≤ {filter_threshold}]',
+                x=0.5,
+                font=dict(size=16)
+            ),
+            xaxis_title=dict(text='Checkpoint', font=dict(size=14)),
+            yaxis_title=dict(text='Training Loss (log scale)', font=dict(size=14)),
+            yaxis_type="log",
+            width=1200,
+            height=800,
+            showlegend=True,
+            legend=dict(font=dict(size=12)),
+            plot_bgcolor='white',
+            xaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray'),
+            yaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray')
+        )
 
+        # Save both PNG and HTML versions
+        output_dir = Path(__file__).parent.parent / "logs" / "DiT20250825_004507"
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save individual plot
-        output_path = Path(__file__).parent.parent / "logs"  /"DiT20250822_192914"/ f"timestep_group_{group_idx}_comparison.png"
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot for timestep group {group_idx} to {output_path}")
+        png_path = output_dir / f"timestep_group_{group_idx}_comparison.png"
+        html_path = output_dir / f"timestep_group_{group_idx}_comparison.html"
+        
+        # Save PNG (with error handling for kaleido dependency)
+        try:
+            fig.write_image(png_path, width=1200, height=800, scale=2)
+        except Exception as e:
+            print(f"Warning: Could not save PNG file. Install kaleido with 'pip install kaleido'. Error: {e}")
+        
+        # Save HTML
+        fig.write_html(html_path)
+        
+        print(f"Saved plot for timestep group {group_idx} to {png_path} and {html_path}")
         
         # Show plot
-        plt.show()
+        # fig.show()
     
     # Create a summary plot with all timestep groups for the first training run (for reference)
     print("\nGenerating summary plot...")
@@ -354,8 +597,9 @@ def main():
     first_run_config = training_runs[first_run_name]
     checkpoint_numbers = [int(ckpt) for ckpt in first_run_config["checkpoints"]]
     
-    plt.figure(figsize=(14, 10))
-    group_colors = plt.cm.tab10(range(num_timestep_groups))
+    # Create plotly summary figure
+    summary_fig = go.Figure()
+    group_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
     
     for group_idx in range(num_timestep_groups):
         time_step_low = training_group_boundaries[group_idx]
@@ -365,24 +609,51 @@ def main():
             losses = all_results[first_run_name][group_idx]
             min_length = min(len(checkpoint_numbers), len(losses))
             
-            plt.plot(checkpoint_numbers[:min_length], losses[:min_length],
-                    marker='o', linewidth=2, markersize=6,
-                    label=f'Group {group_idx} (t={time_step_low}-{time_step_high})',
-                    color=group_colors[group_idx])
+            summary_fig.add_trace(go.Scatter(
+                x=checkpoint_numbers[:min_length],
+                y=losses[:min_length],
+                mode='lines+markers',
+                name=f'Group {group_idx} (t={time_step_low}-{time_step_high})',
+                line=dict(color=group_colors[group_idx % len(group_colors)], width=2),
+                marker=dict(symbol='circle', size=6, color=group_colors[group_idx % len(group_colors)])
+            ))
     
-    plt.xlabel('Checkpoint', fontsize=14)
-    plt.ylabel('Training Loss (log scale)', fontsize=14)
-    plt.yscale('log')
-    plt.title(f'All Timestep Groups - {first_run_name}', fontsize=16, fontweight='bold')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
+    # Update summary layout
+    summary_fig.update_layout(
+        title=dict(
+            text=f'All Timestep Groups - {first_run_name}',
+            x=0.5,
+            font=dict(size=16)
+        ),
+        xaxis_title=dict(text='Checkpoint', font=dict(size=14)),
+        yaxis_title=dict(text='Training Loss (log scale)', font=dict(size=14)),
+        yaxis_type="log",
+        width=1400,
+        height=1000,
+        showlegend=True,
+        legend=dict(font=dict(size=12)),
+        plot_bgcolor='white',
+        xaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray'),
+        yaxis=dict(showgrid=True, gridwidth=1, gridcolor='lightgray')
+    )
     
-    # Save summary plot
-    summary_output_path = Path(__file__).parent.parent / "logs" / "DiT20250822_192914"/ f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
-    plt.savefig(summary_output_path, dpi=300, bbox_inches='tight')
-    print(f"Saved summary plot to {summary_output_path}")
-    plt.show()
+    # Save summary plot (both PNG and HTML)
+    output_dir = Path(__file__).parent.parent / "logs" / "DiT20250825_004507"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    summary_png_path = output_dir / f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"
+    summary_html_path = output_dir / f"all_timestep_groups_{first_run_name.replace(' ', '_')}.html"
+    
+    # Save PNG and HTML (with error handling for kaleido dependency)
+    try:
+        summary_fig.write_image(summary_png_path, width=1400, height=1000, scale=2)
+    except Exception as e:
+        print(f"Warning: Could not save summary PNG file. Install kaleido with 'pip install kaleido'. Error: {e}")
+    
+    summary_fig.write_html(summary_html_path)
+    
+    print(f"Saved summary plot to {summary_png_path} and {summary_html_path}")
+    # summary_fig.show()
     
     # Print statistics
     print("\nTraining Loss Statistics:")

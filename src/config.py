@@ -6,10 +6,10 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 256
+    train_batch_size: int = 128
     eval_batch_size: int = 128
     num_epochs: int = 3000
-    prediction_type: str = "v_prediction"
+    prediction_type: str = "epsilon"
     latent_channels: int = 4
     pixel_channels: int = 3
     gradient_accumulation_steps: int = 1
@@ -19,7 +19,7 @@ class TrainingConfig:
     validation_epochs: int = 15
     save_image_epochs: int = 15
     save_model_epochs: int = 15
-    evaluate_fid_epochs: int = 500
+    evaluate_fid_epochs: int = 150
     # validation_epochs: int = 1 # for testing
     # save_image_epochs: int = 1 # for testing
     # save_model_epochs: int = 1 # for testing
@@ -40,11 +40,11 @@ class TrainingConfig:
     frobenius_norm_loss_weight: float = 1e-6
     low_rank_rank: float = 0.25
     low_rank_compression: bool = False
-    low_rank_gradient: bool = True
+    low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
-    curriculum_learning: bool = True
+    curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
-    curriculum_learning_timestep_num_groups: int = 10
+    curriculum_learning_timestep_num_groups: int = 5
     curriculum_learning_current_group_portion: float = 0.2
     curriculum_learning_ema_alpha: float = 0.1
     curriculum_learning_ema_warmup: int = 3
@@ -52,9 +52,17 @@ class TrainingConfig:
     curriculum_learning_start_from_middle: bool = False
     curriculum_learning_middle_group_index: int = 7
     curriculum_learning_full_finetune_count: int = 200
+    curriculum_learning_gradual: bool = True
+    curriculum_learning_gradual_patience: int = 5
+    curriculum_learning_gradual_start: int = 844
+    curriculum_learning_gradual_step_size: int = 50
+    curriculum_learning_gradual_start_alpha: float = 0.05
+    curriculum_learning_gradual_end_alpha: float = 0.3
+    gradual_curriculum_learning_num_epochs: int = 100
+    curriculum_learning_gradual_alpha_schedule: str = "bell"
     real_features_path: str = "data/fid_features/CIFAR10_train_features_fp64_0.3.pt"
     load_pretrained_model: bool = False
-    pretrained_model_path: Optional[str] = "logs/DiT20250822_010748/model_0099.pt"
+    pretrained_model_path: Optional[str] = "logs/DiT20250823_110454/model_0044.pt"
     load_pretrained_ema: bool = False
     pretrained_ema_path: Optional[str] = "logs/DiT20250817_152007/EMA_model_0899.pt"
     # mixed_precision: str = "fp16" # Uncomment and type if used
@@ -79,9 +87,9 @@ class LDConfig:
     learning_rate: float = 5e-4
     weight_decay: float = 0.0
     lr_warmup_steps: int = 1500
-    validation_epochs: int = 2
-    save_image_epochs: int = 2
-    save_model_epochs: int = 50
+    validation_epochs: int = 15
+    save_image_epochs: int = 15
+    save_model_epochs: int = 15
     evaluate_fid_epochs: int = 300
     # validation_epochs: int = 1 # for testing
     # save_image_epochs: int = 1 # for testing

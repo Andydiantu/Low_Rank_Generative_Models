@@ -21,6 +21,7 @@ from tqdm.auto import tqdm
 from galore_torch import GaLoreAdamW, GaLoreEvalAdamW
 import matplotlib.pyplot as plt
 import numpy as np
+from simple_monitor import SimpleMonitor, sample_timesteps_curriculum, importance_weight_schedule
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
@@ -79,6 +80,13 @@ class DiTTrainer:
         self.val_loss_history = []
         self.ema_val_loss_history = []
         self.eval = Eval(train_dataloader , config)
+        self.simple_monitor = SimpleMonitor(patience=config.curriculum_learning_gradual_patience, 
+            start=config.curriculum_learning_gradual_start, 
+            step_size=config.curriculum_learning_gradual_step_size, 
+            if_start_low=config.curriculum_learning_start_from_low, 
+            start_alpha=config.curriculum_learning_gradual_start_alpha, 
+            end_alpha=config.curriculum_learning_gradual_end_alpha, 
+            total_epochs=config.gradual_curriculum_learning_num_epochs)
         
         self.curriculum_full_finetune_count = 0
         self.projection_loss_history = []
@@ -218,6 +226,12 @@ class DiTTrainer:
                 # Sample noise to add to the images
                 noise = torch.randn(latents.shape).to(latents.device)
                 batch_size = latents.shape[0]
+                
+                # Debug: Print dtype on first iteration
+                if step == 0 and epoch == 0:
+                    print(f"Model parameter dtype: {next(model.parameters()).dtype}")
+                    print(f"Noise tensor dtype: {noise.dtype}")
+                    print(f"Latents dtype: {latents.dtype}")
 
                 # Sample a random timestep for each image
                 if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
@@ -280,12 +294,42 @@ class DiTTrainer:
 
 
                 else:
-                    timesteps = torch.randint(
-                        0,
-                        self.noise_scheduler.config.num_train_timesteps,
-                        (batch_size,),
-                        device=clean_images.device,
-                    ).long()
+
+                    if self.config.curriculum_learning_gradual and not self.simple_monitor.get_if_curriculum_is_done():
+                        if self.simple_monitor.if_start_low:
+                            high_bound = min(self.simple_monitor.get_start(), self.noise_scheduler.config.num_train_timesteps)
+                        else:
+                            high_bound = max(self.simple_monitor.get_start(), 0)
+
+                        if self.config.curriculum_learning_gradual_alpha_schedule == "increasing":
+                            alpha = self.simple_monitor.cosine_schedule_increasing(epoch)
+                        elif self.config.curriculum_learning_gradual_alpha_schedule == "bell":
+                            alpha = self.simple_monitor.cosine_schedule_bell_curve(epoch)
+                        else:
+                            print("Invalid alpha schedule")
+                            exit()
+
+
+
+                        timesteps = sample_timesteps_curriculum(batch_size, 
+                                                                    alpha, 
+                                                                    high_bound,
+                                                                    self.noise_scheduler.config.num_train_timesteps, 
+                                                                    device=clean_images.device,
+                                                                    reverse_curriculum=not self.simple_monitor.if_start_low)
+
+                        
+
+                    else:
+                        high_bound = self.noise_scheduler.config.num_train_timesteps
+
+                        timesteps = torch.randint(
+                            0,
+                            high_bound,
+                            (batch_size,),
+                            device=clean_images.device,
+                        ).long()         
+
 
                 # print(f"sampling timesteps from {timesteps.min()} to {timesteps.max()}")
 
@@ -340,9 +384,15 @@ class DiTTrainer:
                 # gamma  = 5.0
                 # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
                 # print(loss_weight)
-             
-                # loss = F.mse_loss(pred[:current_timestep_group_batch_size], target[:current_timestep_group_batch_size], reduction="none")
+
+                # w_iw = importance_weight_schedule(alpha, high_bound, self.noise_scheduler.config.num_train_timesteps, timesteps, device=clean_images.device, if_start_low=self.simple_monitor.if_start_low)
+                # print(w_iw)
+                # print(timesteps)
+                # # loss = F.mse_loss(pred[:current_timestep_group_batch_size], target[:current_timestep_group_batch_size], reduction="none")
                 loss = F.mse_loss(pred, target, reduction="none")
+                # loss = loss.mean(dim=(1, 2, 3))  # Average over channels, height, width to get shape [16]
+                # loss = w_iw * loss
+
 
                 # # Initialize KD_loss for all cases
                 # KD_loss = torch.tensor([0.0], device=device)
@@ -476,6 +526,15 @@ class DiTTrainer:
             torch.save(self.projection_loss_history, os.path.join(self.config.output_dir, "projection_loss_history.pt"))
             self.plot_projection_loss()
             
+            if self.config.curriculum_learning_gradual and not self.simple_monitor.get_if_curriculum_is_done():
+                print(f"Simple monitor: {self.simple_monitor.get_start()}")
+                
+                if self.simple_monitor():
+                    if self.config.low_rank_gradient:
+                        self.optimizer.reset_projection_matrices()
+                        print("Resetting projection matrices")
+                    
+
             # Save and plot gradient variance history
             # Calculate average gradient norm for the epoch
             if self.epoch_gradient_norms:
@@ -803,8 +862,8 @@ def main():
     # config = LDConfig()
     print_config(config)
     
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
