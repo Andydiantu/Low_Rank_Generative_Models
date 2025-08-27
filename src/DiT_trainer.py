@@ -497,10 +497,11 @@ class DiTTrainer:
                         model.eval()
                         
                         # Ensure pipeline gets a plain DiT transformer (unwrap if needed)
-                        transformer_for_pipeline = model.base_model if isinstance(model, TimestepConditionedWrapper) else model
+                        # Use wrapper to preserve timestep-conditioned masking during generation
+                        transformer_for_generation = model
                         
                         pipeline = DiTPipeline(
-                            transformer=transformer_for_pipeline,
+                            transformer=transformer_for_generation,
                             scheduler=self.noise_scheduler,
                             vae=self.vae.vae if self.config.vae else self.vae,
                         )
@@ -524,7 +525,16 @@ class DiTTrainer:
                         if (
                             (epoch + 1) % self.config.save_model_epochs == 0
                         ):
-                            pipeline.save_pretrained(self.config.output_dir)
+                            # Create a save-only pipeline using the plain base model to be compatible with diffusers saving
+                            transformer_for_saving = model.base_model if isinstance(model, TimestepConditionedWrapper) else model
+                            save_pipeline = DiTPipeline(
+                                transformer=transformer_for_saving,
+                                scheduler=self.noise_scheduler,
+                                vae=self.vae.vae if self.config.vae else self.vae,
+                            )
+                            save_pipeline = save_pipeline.to(device)
+                            save_pipeline.save_pretrained(self.config.output_dir)
+                            del save_pipeline
                             
                             # Save EMA model weights for the underlying base model
                             if isinstance(model, TimestepConditionedWrapper):
@@ -770,7 +780,7 @@ def main():
     print_noise_scheduler_settings(noise_scheduler)
 
     if config.low_rank_pretraining:
-        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank)
+        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank, config=config)
         print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
         # Wrap with timestep conditioning if enabled
