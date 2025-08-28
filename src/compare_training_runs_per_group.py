@@ -400,56 +400,72 @@ def load_training_runs_config():
         #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179", "0209", "0239", "0269", "0299", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539"]
         # },
 
+        # "low rank adaptive match activated curriculum learning":{
+        #     "folder": "DiT20250827_012417",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179", "0209", "0239", "0269", "0299", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
 
-        "low rank adaptive first 1":{
-            "folder": "DiT20250826_212216",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+
+        "low rank full dataset full rank baseline":{
+            "folder": "DiT20250827_011356",
+            "checkpoints": ["0029", "0089", "0149", "0209", "0269", "0329", "0389", "0449", "0509", "0569", "0629", "0689", "0749", "0809", "0869", "0929", "0989", "1049", "1109", "1169"]
         },
 
-        "low rank adaptive first 2":{
-            "folder": "DiT20250826_184346",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        "low rank full dataset full rank adaptive":{
+            "folder": "DiT20250827_011934",
+            "checkpoints": ["0029", "0089", "0149", "0209", "0269", "0329", "0389", "0449", "0509", "0569", "0629", "0689", "0749", "0809", "0869", "0929", "0989", "1049", "1109", "1169"]
         },
 
-        "low rank adaptive first 3":{
-            "folder": "DiT20250826_193604",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
 
-        "low rank adaptive first 4":{
-            "folder": "DiT20250826_202855",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive first 1":{
+        #     "folder": "DiT20250826_212216",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive first 5":{
-            "folder": "DiT20250826_221530",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive first 2":{
+        #     "folder": "DiT20250826_184346",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive last 1":{
-            "folder": "DiT20250826_212044",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive first 3":{
+        #     "folder": "DiT20250826_193604",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive last 2":{
-            "folder": "DiT20250826_184325",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive first 4":{
+        #     "folder": "DiT20250826_202855",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive last 3":{
-            "folder": "DiT20250826_193536",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive first 5":{
+        #     "folder": "DiT20250826_221530",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive last 4":{
-            "folder": "DiT20250826_202753",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive last 1":{
+        #     "folder": "DiT20250826_212044",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
-        "low rank adaptive last 5":{
-            "folder": "DiT20250826_221250",
-            "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
-        },
+        # "low rank adaptive last 2":{
+        #     "folder": "DiT20250826_184325",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
+
+        # "low rank adaptive last 3":{
+        #     "folder": "DiT20250826_193536",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
+
+        # "low rank adaptive last 4":{
+        #     "folder": "DiT20250826_202753",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
+
+        # "low rank adaptive last 5":{
+        #     "folder": "DiT20250826_221250",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179"]
+        # },
 
 
 
@@ -508,11 +524,11 @@ def main():
             print(tansform_dict)
 
 
-        # results_path = Path(__file__).parent.parent / "logs" / run_config["folder"] / f"all_results_{run_name}.pt"
-        # if results_path.exists():
-        #     all_results[run_name] = torch.load(results_path)
-        #     print(f"Loaded existing results for {run_name}")
-        #     continue
+        results_path = Path(__file__).parent.parent / "logs" / run_config["folder"] / f"all_results_{run_name}.pt"
+        if results_path.exists():
+            all_results[run_name] = torch.load(results_path)
+            print(f"Loaded existing results for {run_name}")
+            continue
 
 
         # Initialize storage for thrun_nameis run
@@ -549,7 +565,11 @@ def main():
                     config.timestep_conditioning_last_n_blocks = number
             
             # Apply low rank compression if specified
-            model = low_rank_layer_replacement(model, percentage=0.25, config=config)
+            if "adaptive" in run_name.lower():
+                model = low_rank_layer_replacement(model, percentage=0.25, config=config)
+            else:
+                model = low_rank_layer_replacement(model, percentage=0.25)
+
             print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
 
@@ -703,7 +723,7 @@ def main():
         )
 
         # Save both PNG and HTML versions
-        output_dir = Path(__file__).parent.parent / "logs" / "DiT20250826_221250"
+        output_dir = Path(__file__).parent.parent / "logs" / "DiT20250827_011934"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         png_path = output_dir / f"timestep_group_{group_idx}_comparison.png"
@@ -770,7 +790,7 @@ def main():
     )
     
     # Save summary plot (both PNG and HTML)
-    output_dir = Path(__file__).parent.parent / "logs" / "DiT20250826_221250"
+    output_dir = Path(__file__).parent.parent / "logs" / "DiT20250827_011934"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     summary_png_path = output_dir / f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"

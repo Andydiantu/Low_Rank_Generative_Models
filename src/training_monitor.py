@@ -5,7 +5,7 @@ from pathlib import Path
 from collections import deque
 
 class TrainingMonitor:
-    def __init__(self, patience, num_timestep_groups, k=10, start_from_low=False, start_from_middle=False, middle_group_index=3, ema_alpha=0.1, ema_warmup=3):
+    def __init__(self, patience, num_timestep_groups, k=5, start_from_low=False, start_from_middle=False, middle_group_index=3, ema_alpha=0.1, ema_warmup=3):
         self.patience = patience
         self.k = k  # Number of steps to track for running mean
         self.recent_losses = deque(maxlen=k)  # Circular buffer for past k losses   

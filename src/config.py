@@ -43,14 +43,14 @@ class TrainingConfig:
     low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
     # Timestep-conditioned rank scheduling
-    timestep_conditioning: bool = False
+    timestep_conditioning: bool = True
     rank_schedule: str = "logistic_decreasing"  # "decreasing", "increasing", "midpeak"
     rank_min_ratio: float = 0.5
     # Selective timestep conditioning - apply only to specific transformer blocks
     timestep_conditioning_first_n_blocks: int = 0  # Apply to first n blocks (0 = disabled)
     timestep_conditioning_last_n_blocks: int = 0   # Apply to last n blocks (0 = disabled)
     # If both are 0, applies to all blocks (original behavior)
-    timestep_conditioning_match_type: str = "activated" # "activated", "total"
+    timestep_conditioning_match_type: str = "total" # "activated", "total"
     timestep_conditioning_total_blocks: int = 0  # Override total blocks (0 = auto-detect)
     curriculum_learning: bool = True
     curriculum_learning_patience: int = 5

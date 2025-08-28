@@ -213,8 +213,14 @@ class DiTTrainer:
                     if not trained_high_bound == trained_low_bound:
 
                         
-                        first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
-                        second_batch = batch_size - first_batch
+                        # first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
+                        # second_batch = batch_size - first_batch
+
+                        second_batch = int((trained_high_bound - trained_low_bound) / (self.noise_scheduler.config.num_train_timesteps) * batch_size)
+                        first_batch = batch_size - second_batch
+
+                        print(f"first_batch: {first_batch}")
+                        print(f"second_batch: {second_batch}")
                         
                         # First half: sample from [low_bound, high_bound]
                         timesteps_first_half = torch.randint(
@@ -765,8 +771,8 @@ def main():
     # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
     # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
 
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)

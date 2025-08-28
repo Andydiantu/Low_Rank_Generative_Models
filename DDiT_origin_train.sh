@@ -13,21 +13,21 @@ uptime
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py --set timestep_conditioning_first_n_blocks=2 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set timestep_conditioning_last_n_blocks=2 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py --set timestep_conditioning_first_n_blocks=3 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set timestep_conditioning_last_n_blocks=3 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py --set timestep_conditioning_first_n_blocks=4 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set timestep_conditioning_last_n_blocks=4 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py --set timestep_conditioning_first_n_blocks=1 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set timestep_conditioning_last_n_blocks=1 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py --set timestep_conditioning_first_n_blocks=5 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_trainer.py --set timestep_conditioning_last_n_blocks=5 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
 
