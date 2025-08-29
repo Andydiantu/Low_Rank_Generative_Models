@@ -165,11 +165,15 @@ class LowRankLinear(nn.Module):
         self.V.copy_(Vh_[:k, :] * root_S.view(-1, 1))   # [k, in]
         nn.init.constant_(self.bias, 0)
 
-    def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing"):
+    def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing", logistic_k=8.0, logistic_m=0.6, warmup_ratio=0.05):
         """
         Map per-sample timestep t -> active rank r(t).
         t: [B] int/float tensor; T: scalar max timestep.
+        rank: int, maximum rank value
         schedule: 'decreasing' | 'increasing' | 'midpeak' | 'logistic_decreasing' | 'logistic_increasing'
+        logistic_k: sharpness parameter for logistic schedules (>0)
+        logistic_m: midpoint parameter for logistic schedules in [0,1]
+        warmup_ratio: fraction of timesteps to use full rank before decreasing (for decreasing schedules only)
         """
         r = self.rank
         r_min = max(1, int(round(r_min_ratio * r)))
@@ -178,11 +182,23 @@ class LowRankLinear(nn.Module):
 
         if schedule == "decreasing":
             # At t=0: r_full, at t=T: r_min
-            r_t = (r_min + 1 + (r - r_min) * (T - t) / T).floor().clamp(min=r_min, max=r)
+            # With warmup: full rank for first warmup_ratio * T timesteps
+            warmup_t = warmup_ratio * T
+            
+            # Create mask for warmup period
+            is_warmup = t < warmup_t
+            
+            # For warmup period: use full rank
+            # For decreasing period: linear decrease over remaining time
+            remaining_T = T - warmup_t
+            adjusted_t = torch.clamp(t - warmup_t, min=0)  # Time since warmup ended
+            
+            r_t_decreasing = (r_min + (r - r_min) * (remaining_T - adjusted_t) / (remaining_T + 1e-8)).floor().clamp(min=r_min, max=r)
+            r_t = torch.where(is_warmup, r, r_t_decreasing)
 
         elif schedule == "increasing":
             # At t=0: r_min, at t=T: r_full
-            r_t = (r_min + 1 + (r - r_min) * (t / T)).floor().clamp(min=r_min, max=r)
+            r_t = (r_min + (r - r_min) * (t / T)).floor().clamp(min=r_min, max=r)
 
         elif schedule == "midpeak":
             # simple tent peaking at T/2
@@ -193,25 +209,94 @@ class LowRankLinear(nn.Module):
             r_t = (r_min + (r - r_min) * frac).floor().clamp(min=r_min, max=r)
 
         elif schedule == "logistic_decreasing":
-            # S-curve: start near r, end near r_min
-            k = float(getattr(self, "logistic_k", 8.0))   # sharpness (>0)
-            m = float(getattr(self, "logistic_m", 0.6))   # midpoint in [0,1]
-            frac = (t / T).clamp(0, 1)
-            s = torch.sigmoid(-k * (frac - m))            # ~1 early, ~0 late
-            r_t = (r_min + (r - r_min) * s).floor().clamp(min=r_min, max=r)
+            # S-curve: start at r, end at r_min
+            # With warmup: full rank for first warmup_ratio * T timesteps
+            k = float(logistic_k)   # sharpness (>0)
+            m = float(logistic_m)   # midpoint in [0,1]
+            warmup_t = warmup_ratio * T
+            
+            # Create mask for warmup period
+            is_warmup = t < warmup_t
+            
+            # For logistic decrease over remaining time
+            remaining_T = T - warmup_t
+            adjusted_t = torch.clamp(t - warmup_t, min=0)  # Time since warmup ended
+            frac = (adjusted_t / (remaining_T + 1e-8)).clamp(0, 1)  # Fraction of remaining time
+            
+            # Normalize sigmoid to actually go from 1 to 0
+            raw_s = torch.sigmoid(-k * (frac - m))
+            s_max = torch.sigmoid(torch.tensor(-k * (0 - m), device=self.U.device, dtype=frac.dtype))    # value at frac=0 (start of decrease)
+            s_min = torch.sigmoid(torch.tensor(-k * (1 - m), device=self.U.device, dtype=frac.dtype))    # value at frac=1 (end of decrease)
+            s = (raw_s - s_min) / (s_max - s_min + 1e-8)  # normalize to [0,1], then 1 early, 0 late
+            
+            r_t_decreasing = (r_min + (r - r_min) * s).floor().clamp(min=r_min, max=r)
+            r_t = torch.where(is_warmup, r, r_t_decreasing)
 
         elif schedule == "logistic_increasing":
-            # S-curve: start near r_min, end near r
-            k = float(getattr(self, "logistic_k", 8.0))   # sharpness (>0)
-            m = float(getattr(self, "logistic_m", 0.6))   # midpoint in [0,1]
+            # S-curve: start at r_min, end at r
+            k = float(logistic_k)   # sharpness (>0)
+            m = float(logistic_m)   # midpoint in [0,1]
             frac = (t / T).clamp(0, 1)
-            s = torch.sigmoid(k * (frac - m))             # ~0 early, ~1 late
+            
+            # Normalize sigmoid to actually go from 0 to 1
+            raw_s = torch.sigmoid(k * (frac - m))
+            s_min = torch.sigmoid(torch.tensor(k * (0 - m), device=self.U.device, dtype=frac.dtype))     # value at frac=0 (t=0)
+            s_max = torch.sigmoid(torch.tensor(k * (1 - m), device=self.U.device, dtype=frac.dtype))     # value at frac=1 (t=T)
+            s = (raw_s - s_min) / (s_max - s_min)  # normalize to [0,1], then 0 early, 1 late
+            
             r_t = (r_min + (r - r_min) * s).floor().clamp(min=r_min, max=r)
 
         else:
             raise ValueError("Unknown schedule")
 
         return r_t.to(torch.long)  # [B]
+    # def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing"):
+    #     """
+    #     Map per-sample timestep t -> active rank r(t).
+    #     t: [B] int/float tensor; T: scalar max timestep.
+    #     schedule: 'decreasing' | 'increasing' | 'midpeak' | 'logistic_decreasing' | 'logistic_increasing'
+    #     """
+    #     r = self.rank
+    #     r_min = max(1, int(round(r_min_ratio * r)))
+    #     t = t.to(self.U.device)
+    #     T = torch.as_tensor(T, device=self.U.device, dtype=t.dtype)
+
+    #     if schedule == "decreasing":
+    #         # At t=0: r_full, at t=T: r_min
+    #         r_t = (r_min + 1 + (r - r_min) * (T - t) / T).floor().clamp(min=r_min, max=r)
+
+    #     elif schedule == "increasing":
+    #         # At t=0: r_min, at t=T: r_full
+    #         r_t = (r_min + 1 + (r - r_min) * (t / T)).floor().clamp(min=r_min, max=r)
+
+    #     elif schedule == "midpeak":
+    #         # simple tent peaking at T/2
+    #         mid  = 0.5 * T
+    #         left  = (t <= mid).to(t.dtype) * (t / mid)
+    #         right = (t >  mid).to(t.dtype) * ((T - t) / (T - mid + 1e-8))
+    #         frac = torch.maximum(left, right)
+    #         r_t = (r_min + (r - r_min) * frac).floor().clamp(min=r_min, max=r)
+
+    #     elif schedule == "logistic_decreasing":
+    #         # S-curve: start near r, end near r_min
+    #         k = float(getattr(self, "logistic_k", 8.0))   # sharpness (>0)
+    #         m = float(getattr(self, "logistic_m", 0.6))   # midpoint in [0,1]
+    #         frac = (t / T).clamp(0, 1)
+    #         s = torch.sigmoid(-k * (frac - m))            # ~1 early, ~0 late
+    #         r_t = (r_min + (r - r_min) * s).floor().clamp(min=r_min, max=r)
+
+    #     elif schedule == "logistic_increasing":
+    #         # S-curve: start near r_min, end near r
+    #         k = float(getattr(self, "logistic_k", 8.0))   # sharpness (>0)
+    #         m = float(getattr(self, "logistic_m", 0.6))   # midpoint in [0,1]
+    #         frac = (t / T).clamp(0, 1)
+    #         s = torch.sigmoid(k * (frac - m))             # ~0 early, ~1 late
+    #         r_t = (r_min + (r - r_min) * s).floor().clamp(min=r_min, max=r)
+
+    #     else:
+    #         raise ValueError("Unknown schedule")
+
+    #     return r_t.to(torch.long)  # [B]
 
 
     def forward(
