@@ -94,6 +94,11 @@ class DiTTrainer:
             start_from_middle=config.curriculum_learning_start_from_middle,
             middle_group_index=config.curriculum_learning_middle_group_index)
 
+            if isinstance(self.model, TimestepConditionedWrapper):
+                boundaries = self.training_monitor.get_current_group_range()
+                self.model.set_timestep_lower_bound(boundaries[0])
+                print(f"Setting timestep lower bound to {boundaries[0]}")
+
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
                 self.model.parameters(),
@@ -218,9 +223,6 @@ class DiTTrainer:
 
                         second_batch = int((trained_high_bound - trained_low_bound) / (self.noise_scheduler.config.num_train_timesteps) * batch_size)
                         first_batch = batch_size - second_batch
-
-                        print(f"first_batch: {first_batch}")
-                        print(f"second_batch: {second_batch}")
                         
                         # First half: sample from [low_bound, high_bound]
                         timesteps_first_half = torch.randint(
@@ -455,11 +457,28 @@ class DiTTrainer:
                     print(f"Updating curriculum learning timestep num groups to {self.training_monitor.current_timestep_groups}")
                     if self.training_monitor.get_if_curriculum_learning_is_done():
                         print("Curriculum learning is done")
+                        if isinstance(model, TimestepConditionedWrapper):
+                            model.set_timestep_lower_bound(None)
+                            print(f"Setting timestep lower bound to None")
                     else:
                         boundaries = self.training_monitor.get_current_group_range()
                         print(f"Current timestep groups low bound: {boundaries[0]}") 
                         print(f"Current timestep groups high bound: {boundaries[1]}")
 
+                        if isinstance(model, TimestepConditionedWrapper):
+                            model.set_timestep_lower_bound(boundaries[0])
+                            print(f"Setting timestep lower bound to {boundaries[0]}")
+
+                        # Reset optimiser and learning rate scheduler
+                        self.optimizer = torch.optim.AdamW(model.parameters(), 
+                                                           lr=self.config.learning_rate * (1 - (10 - self.training_monitor.current_timestep_groups)*0.02), 
+                                                           weight_decay=self.config.weight_decay)
+                        self.lr_scheduler = get_cosine_schedule_with_warmup(
+                            optimizer=self.optimizer,
+                            num_warmup_steps=self.config.lr_warmup_steps * 0.1, # 10% of the warmup steps
+                            num_training_steps=(len(self.train_dataloader) * (self.config.num_epochs - epoch)),
+                        )
+                        print(f" Resetting optimiser and learning rate scheduler. New learning rate: {self.config.learning_rate * (1 - (10 - self.training_monitor.current_timestep_groups)*0.02):.6f}")
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
@@ -501,6 +520,10 @@ class DiTTrainer:
                         ema_model.store(model.parameters())
                         ema_model.copy_to(model.parameters())
                         model.eval()
+                        if isinstance(model, TimestepConditionedWrapper):
+                            original_timestep_lower_bound = model.timestep_lower_bound
+                            model.set_timestep_lower_bound(None)
+                            print(f"Setting timestep lower bound to None")
                         
                         # Ensure pipeline gets a plain DiT transformer (unwrap if needed)
                         # Use wrapper to preserve timestep-conditioned masking during generation
@@ -563,6 +586,9 @@ class DiTTrainer:
                     # Restore original model parameters and set back to training mode
                     model.load_state_dict(original_model_state)
                     model.train()
+                    if isinstance(model, TimestepConditionedWrapper):
+                        model.set_timestep_lower_bound(original_timestep_lower_bound)
+                        print(f"Setting timestep lower bound to {original_timestep_lower_bound}")
                     del pipeline
                     del original_model_state  # Clean up the temporary state dict
                     torch.cuda.empty_cache()
@@ -642,6 +668,11 @@ class DiTTrainer:
         del pipeline
 
     def validation_loss(self, model, ema_model, validation_dataloader, config, epoch, global_step, EMA = False, timestep_lower_bound = 0, timestep_upper_bound = 1000):
+        if isinstance(model, TimestepConditionedWrapper):
+            original_timestep_lower_bound = model.timestep_lower_bound
+            model.set_timestep_lower_bound(None)
+            print(f"Setting timestep lower bound to None")
+
         if torch.cuda.is_available():
             device = torch.device("cuda")
         else:
@@ -722,7 +753,9 @@ class DiTTrainer:
         if EMA:
             ema_model.restore(model.parameters())
         model.train()
-
+        if isinstance(model, TimestepConditionedWrapper):
+            model.set_timestep_lower_bound(original_timestep_lower_bound)
+            print(f"Setting timestep lower bound to {original_timestep_lower_bound}")
 
         if "SLURM_JOB_ID" in os.environ:
             print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}\n")
@@ -771,8 +804,8 @@ def main():
     # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
     # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
 
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
@@ -796,7 +829,7 @@ def main():
             print(f"  Schedule: {config.rank_schedule}")
             print(f"  Min ratio: {config.rank_min_ratio}")
             print(f"  Max timesteps: {config.num_training_steps}")
-            
+
     if config.load_pretrained_model:
         path = Path(__file__).parent.parent / config.pretrained_model_path
         print(f"Loading pretrained model from {path}")
