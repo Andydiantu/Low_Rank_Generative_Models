@@ -31,7 +31,7 @@ class TrainingConfig:
     cfg_enabled: bool = True
     unconditional_prob: float = 0.1
     guidance_scale: float = 2
-    low_rank_pretraining: bool = True
+    low_rank_pretraining: bool = False
     ortho_loss_weight: float = 1e-1 
     frobenius_loss_weight: float = 1e-5
     nuclear_norm_loss: bool = False
@@ -50,9 +50,9 @@ class TrainingConfig:
     timestep_conditioning_first_n_blocks: int = 0  # Apply to first n blocks (0 = disabled)
     timestep_conditioning_last_n_blocks: int = 0   # Apply to last n blocks (0 = disabled)
     # If both are 0, applies to all blocks (original behavior)
-    timestep_conditioning_match_type: str = "total" # "activated", "total"
+    timestep_conditioning_match_type: str = "activated" # "activated", "total"
     timestep_conditioning_total_blocks: int = 0  # Override total blocks (0 = auto-detect)
-    curriculum_learning: bool = True
+    curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
     curriculum_learning_timestep_num_groups: int = 10
     curriculum_learning_current_group_portion: float = 0.8

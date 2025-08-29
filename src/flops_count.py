@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import inspect
 from fvcore.nn import FlopCountAnalysis
+from adaptive_full_rank import HeadGater
 # Safe-import jit handles (not all exist in every fvcore version)
 try:
     from fvcore.nn.jit_handles import addmm_flop_jit
@@ -450,6 +451,11 @@ def main():
     print("-" * 40)
 
     full_rank_model = create_model(config)
+    full_rank_model = HeadGater(full_rank_model,     
+                      max_timestep=config.num_training_steps,
+                      min_ratio=config.rank_min_ratio,
+                      schedule=config.rank_schedule,
+                      debug=False,)
 
     print("Parameter Analysis:")
     full_rank_params = count_parameters(full_rank_model, verbose=True)

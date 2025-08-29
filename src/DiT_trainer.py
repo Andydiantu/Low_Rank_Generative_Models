@@ -28,7 +28,7 @@ from eval import Eval, plot_loss_curves
 from preprocessing import create_dataloader, create_lantent_dataloader_celebA
 from vae import SD_VAE, DummyAutoencoderKL
 from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm, TimestepConditionedWrapper
-
+from adaptive_full_rank import HeadGater
 
 
 def _coerce_value_for_type(value_str, type_hint):
@@ -771,8 +771,8 @@ def main():
     # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
     # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
 
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
+    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
@@ -780,6 +780,7 @@ def main():
     # train_loader, validation_loader = create_lantent_dataloader_celebA(config)
 
     model = create_model(config)
+    # head gating will be attached after model wrapping
     noise_scheduler = create_noise_scheduler(config)
 
     print_model_settings(model)
@@ -803,7 +804,15 @@ def main():
         model.load_state_dict(torch.load(path))
         print("Loading complete")
 
-
+    # Attach head gating wrapper last so .config remains accessible on base model
+    head_gater = HeadGater(
+                model,
+                max_timestep=1000,
+                min_ratio=0.5,         # attention heads
+                schedule="decreasing", # t=0 full, t=999 half
+                ffn_min_ratio=0.5,     # FFN hidden features at t=999
+                ffn_schedule="decreasing",
+            )
  
     trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
     trainer.train_loop()
