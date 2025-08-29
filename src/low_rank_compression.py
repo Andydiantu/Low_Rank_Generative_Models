@@ -18,6 +18,7 @@ class TimestepConditionedWrapper(nn.Module):
         self.low_rank_layers = []
         self.low_rank_layer_names = []  # Store corresponding names
         self._collect_low_rank_layers(base_model)
+        self.timestep_lower_bound = None # When equals None, no curriculum learning slicing is applied
         
         # Determine which layers should use timestep conditioning
         self.conditioning_enabled_layers = self._determine_conditioning_layers()
@@ -104,10 +105,18 @@ class TimestepConditionedWrapper(nn.Module):
         
         return conditioning_layers
     
+    def set_timestep_lower_bound(self, timestep_lower_bound):
+        self.timestep_lower_bound = timestep_lower_bound
+    
     def forward(self, hidden_states, timestep=None, class_labels=None, **kwargs):
         # Store timesteps for use in LowRankLinear layers
         self.current_timesteps = timestep
-        
+
+        # Check if timestep lower bound is met
+        if self.timestep_lower_bound is not None:
+           if self.current_timesteps.min() < self.timestep_lower_bound:
+               raise ValueError(f"Timestep lower bound {self.timestep_lower_bound} is not met, minimum timestep is {self.current_timesteps.min()}")
+
         # Inject timestep conditioning function into each LowRankLinear layer
         if self.training_config.timestep_conditioning and timestep is not None:
             for i, layer in enumerate(self.low_rank_layers):
@@ -115,12 +124,14 @@ class TimestepConditionedWrapper(nn.Module):
                     layer._wrapper_timesteps = timestep
                     layer._wrapper_T = self.training_config.num_training_steps
                     layer._wrapper_config = self.training_config
+                    layer._wrapper_timestep_lower_bound = self.timestep_lower_bound
 
                 else:
                     # Clear timestep conditioning for layers not in the selected set
                     layer._wrapper_timesteps = None
                     layer._wrapper_T = None
                     layer._wrapper_config = None
+                    layer._wrapper_timestep_lower_bound = None
         
         # Call the base model
         return self.base_model(hidden_states, timestep, class_labels, **kwargs)
@@ -148,7 +159,8 @@ class LowRankLinear(nn.Module):
         self._wrapper_timesteps = None
         self._wrapper_T = None
         self._wrapper_config = None
-        
+        self._wrapper_timestep_lower_bound = None
+
         if initialise:
             # Initialize using standard linear init strategy
             self.reset_parameters()
@@ -323,7 +335,6 @@ class LowRankLinear(nn.Module):
             T = self._wrapper_T
             r_min_ratio = self._wrapper_config.rank_min_ratio
             schedule = self._wrapper_config.rank_schedule
-        
         if t is None:
             # Baseline path: full rank, standard low-rank multiply
             # (x @ V.T) -> [B, r], then -> [B, out]
@@ -364,6 +375,13 @@ class LowRankLinear(nn.Module):
             r_active = int(r_t[0].item())
             Ax = nn.functional.linear(x, self.V[:r_active, :])              # [B_x, r_active] or [B_x, patches, r_active]
             y = nn.functional.linear(Ax, self.U[:, :r_active], self.bias)   # [B_x, out] or [B_x, patches, out]
+            return (y, mask) if return_mask else y
+        
+       
+        if self._wrapper_timestep_lower_bound is not None and self._wrapper_timestep_lower_bound <= t_expanded.min():
+            r_bound = int(self._active_ranks(torch.tensor([self._wrapper_timestep_lower_bound], device=x.device), T, r_min_ratio=r_min_ratio, schedule=schedule)[0].item())
+            Ax = nn.functional.linear(x, self.V[:r_bound, :])              # [B_x, r_active] or [B_x, patches, r_active]
+            y = nn.functional.linear(Ax, self.U[:, :r_bound], self.bias)   # [B_x, out] or [B_x, patches, out]
             return (y, mask) if return_mask else y
 
         # General case: mixed timesteps in batch -> mask activations (one vectorized forward)
