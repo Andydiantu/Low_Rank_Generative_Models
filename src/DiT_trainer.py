@@ -475,9 +475,11 @@ class DiTTrainer:
                                                            weight_decay=self.config.weight_decay)
                         self.lr_scheduler = get_cosine_schedule_with_warmup(
                             optimizer=self.optimizer,
-                            num_warmup_steps=self.config.lr_warmup_steps * 0.1, # 10% of the warmup steps
+                            num_warmup_steps=self.config.lr_warmup_steps * 0.5, # 30% of the warmup steps
                             num_training_steps=(len(self.train_dataloader) * (self.config.num_epochs - epoch)),
                         )
+                        optimizer = self.optimizer
+                        lr_scheduler = self.lr_scheduler
                         print(f" Resetting optimiser and learning rate scheduler. New learning rate: {self.config.learning_rate * (1 - (10 - self.training_monitor.current_timestep_groups)*0.02):.6f}")
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
