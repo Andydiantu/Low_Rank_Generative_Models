@@ -381,6 +381,14 @@ class LowRankLinear(nn.Module):
         if self._wrapper_timestep_lower_bound is not None and self._wrapper_timestep_lower_bound <= t_expanded.min():
             r_bound = int(self._active_ranks(torch.tensor([self._wrapper_timestep_lower_bound], device=x.device), T, r_min_ratio=r_min_ratio, schedule=schedule)[0].item())
             Ax = nn.functional.linear(x, self.V[:r_bound, :])              # [B_x, r_active] or [B_x, patches, r_active]
+            mask = mask[:, :r_bound]
+            
+            if Ax.dim() == 3:
+                # 3D: [batch, patches, rank] - expand mask to [batch, 1, rank] for broadcasting
+                mask = mask.unsqueeze(1)  # [B_x, 1, r] - broadcasts with [B_x, patches, r]
+            # else: 2D case [batch, rank] - mask already correct shape [B_x, r]
+            Ax = Ax * mask
+
             y = nn.functional.linear(Ax, self.U[:, :r_bound], self.bias)   # [B_x, out] or [B_x, patches, out]
             return (y, mask) if return_mask else y
 
