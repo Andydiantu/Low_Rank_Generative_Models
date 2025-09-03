@@ -1,28 +1,53 @@
 from collections import Counter
 from pathlib import Path
 import torch
+from torch.utils.data import Subset
 from datasets import load_dataset, Dataset
 from torchvision import transforms
 from config import TrainingConfig
+import numpy as np
 
 def load_dataset_from_hf(dataset_name, split):
     dataset = load_dataset(dataset_name, split=split)
     print(f"Loaded dataset {dataset_name} {split} split with {len(dataset)} images")
     return dataset
 
+class LatentsTorchDataset(torch.utils.data.Dataset):
+    """Memory-efficient wrapper around tensors of latents (and optional labels)."""
+    def __init__(self, latents: torch.Tensor, labels=None):
+        self.latents = latents
+        self.labels = labels
+
+    def __len__(self):
+        return self.latents.shape[0]
+
+    def __getitem__(self, idx):
+        sample = {"img": self.latents[idx]}
+        if self.labels is not None:
+            sample["label"] = self.labels[idx] if isinstance(self.labels, torch.Tensor) else self.labels[idx]
+        return sample
+
+
 def load_pre_encoded_latents(dataset_name, split):
-    # (N, latent_dim, …)
-    latents = torch.load(
-        Path(Path(__file__).parent.parent, "data",
-             f"{dataset_name}_latents.pt")
+    print(f"Loading pre-encoded latents from {dataset_name} {split} split")
+    loaded = torch.load(
+        Path(Path(__file__).parent.parent, "data", f"{dataset_name}_latents.pt")
     )
+    if isinstance(loaded, dict) and "latents" in loaded:
+        latents = loaded["latents"]
+        labels = loaded.get("labels", None)
+    else:
+        latents = loaded
+        labels = None
 
-    data_dict = {"img": [t for t in latents]}        
-    dataset = Dataset.from_dict(data_dict)
-    dataset.set_format(type="torch", columns=["img"])
+    print(f"Latents shape: {tuple(latents.shape)}")
+    if labels is not None:
+        if isinstance(labels, torch.Tensor):
+            print(f"Labels shape: {tuple(labels.shape)}")
+        else:
+            print(f"Labels length: {len(labels)}")
 
-
-    return dataset
+    return LatentsTorchDataset(latents, labels)
 
 
 def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents=False):
@@ -73,34 +98,78 @@ def create_dataloader(dataset_name, split, config, eval=False, latents=False, su
         dataset = preprocess_dataset(dataset, config, split, dataset_name, eval)
     
     if subset_size is not None:
-        subset_dataset = dataset.train_test_split(test_size=subset_size, seed=42)
-        train_dataset = subset_dataset['train']
-        val_dataset = subset_dataset['test']
-        train_labels = get_labels_from_dataset(train_dataset)
-        val_labels = get_labels_from_dataset(val_dataset)
+        # Check if dataset has train_test_split method (HuggingFace dataset)
+        if hasattr(dataset, 'train_test_split'):
+            # HuggingFace dataset
+            subset_dataset = dataset.train_test_split(test_size=subset_size, seed=42)
+            train_dataset = subset_dataset['train']
+            val_dataset = subset_dataset['test']
+            train_labels = get_labels_from_dataset(train_dataset)
+            val_labels = get_labels_from_dataset(val_dataset)
 
-        print("Train:", Counter(train_labels))
-        print("Val:", Counter(val_labels))
-        dataset = subset_dataset['test']
-        print(f"Subset size: {len(dataset)}")
+            print("Train:", Counter(train_labels))
+            print("Val:", Counter(val_labels))
+            dataset = subset_dataset['test']
+            print(f"Subset size: {len(dataset)}")
+        else:
+            # PyTorch dataset (e.g., LatentsTorchDataset)
+            total_size = len(dataset)
+            subset_size_count = int(total_size * subset_size)
+            train_size = total_size - subset_size_count
+            
+            # Create random indices
+            np.random.seed(42)
+            indices = np.random.permutation(total_size)
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
+            
+            # Create subsets
+            train_dataset = Subset(dataset, train_indices)
+            val_dataset = Subset(dataset, val_indices)
+            
+            # Get labels for counting (subset of indices for efficiency)
+            sample_indices = val_indices[:min(100, len(val_indices))]  # Sample for label counting
+            val_labels = []
+            for idx in sample_indices:
+                item = dataset[idx]
+                if isinstance(item, dict) and 'label' in item:
+                    val_labels.append(item['label'])
+            
+            if val_labels:
+                print("Val labels sample:", Counter(val_labels))
+            dataset = val_dataset
+            print(f"Subset size: {len(dataset)}")
 
-    
+    print(f"Creating dataloader for {dataset_name} {split} split")
     dataloader = torch.utils.data.DataLoader(
         dataset, 
         batch_size=config.train_batch_size if not eval else config.eval_batch_size, 
         shuffle=True, 
-        num_workers=4, 
-        pin_memory=True,  
-        persistent_workers=True, 
-        prefetch_factor=2,  
+        num_workers=1, 
+        pin_memory=False,  
+        persistent_workers=False, 
+        prefetch_factor=1,  
     )
+    print(f"Dataloader created for {dataset_name} {split} split")
     return dataloader
 
 def create_lantent_dataloader_celebA(config):
     dataset = load_pre_encoded_latents("celebA", "train")
-    split_dataset = dataset.train_test_split(test_size=0.05, seed=42)
-    train_dataset = split_dataset['train']
-    val_dataset = split_dataset['test']
+    
+    # Handle PyTorch dataset splitting
+    total_size = len(dataset)
+    val_size = int(total_size * 0.05)
+    train_size = total_size - val_size
+    
+    # Create random indices
+    np.random.seed(42)
+    indices = np.random.permutation(total_size)
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:]
+    
+    # Create subsets
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
 
     print(f"Train size: {len(train_dataset)}")
     print(f"Val size: {len(val_dataset)}")

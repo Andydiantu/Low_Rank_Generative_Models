@@ -278,7 +278,6 @@ class DiTTrainer:
                 if self.config.cfg_enabled:
                     # boolean mask: True → keep label, False → drop
                     keep_mask = torch.rand(batch_size, device=latents.device) > self.config.unconditional_prob
-                    # clone so we don't modify the original
                     class_labels_input = class_labels.clone()
                     class_labels_input = torch.where(
                         keep_mask,
@@ -530,11 +529,21 @@ class DiTTrainer:
                         # Ensure pipeline gets a plain DiT transformer (unwrap if needed)
                         # Use wrapper to preserve timestep-conditioned masking during generation
                         transformer_for_generation = model
+
+
+                        if not self.config.vae and self.config.use_latents:
+                            inference_vae = SD_VAE()
+                            for param in inference_vae.vae.parameters():
+                                param.requires_grad = False
+                            inference_vae = inference_vae.vae
+
+                        else:
+                            inference_vae = self.vae.vae if self.config.vae else self.vae
                         
                         pipeline = DiTPipeline(
                             transformer=transformer_for_generation,
                             scheduler=self.noise_scheduler,
-                            vae=self.vae.vae if self.config.vae else self.vae,
+                            vae=inference_vae,
                         )
                         
                         # Move pipeline to the correct device
@@ -806,8 +815,13 @@ def main():
     # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
     # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
 
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
+    train_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True)
+    validation_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True)
+
+    print("finish loading dataset")
+
+    # train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
+    # validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
 
     # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
     # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)

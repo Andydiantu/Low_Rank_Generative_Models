@@ -6,7 +6,7 @@ from typing import Optional # For potentially optional pretrained_model_path
 @dataclass
 class TrainingConfig:
     image_size: int = 32
-    train_batch_size: int = 128
+    train_batch_size: int = 256
     eval_batch_size: int = 128
     num_epochs: int = 200
     prediction_type: str = "epsilon"
@@ -16,14 +16,14 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     weight_decay: float = 0.0
     lr_warmup_steps: int = 3000
-    validation_epochs: int =30
-    save_image_epochs: int = 30
-    save_model_epochs: int = 30
-    evaluate_fid_epochs: int = 150
-    # validation_epochs: int = 1 # for testing
-    # save_image_epochs: int = 1 # for testing
-    # save_model_epochs: int = 1 # for testing
-    # evaluate_fid_epochs: int = 2 # for testing
+    # validation_epochs: int =30
+    # save_image_epochs: int = 30
+    # save_model_epochs: int = 30
+    # evaluate_fid_epochs: int = 150
+    validation_epochs: int = 1 # for testing
+    save_image_epochs: int = 1 # for testing
+    save_model_epochs: int = 1 # for testing
+    evaluate_fid_epochs: int = 200 # for testing
     eval_dataset_size: int = 1024
     noise_scheduler: str = "DDIM"
     num_training_steps: int = 1000
@@ -31,7 +31,7 @@ class TrainingConfig:
     cfg_enabled: bool = True
     unconditional_prob: float = 0.1
     guidance_scale: float = 2
-    low_rank_pretraining: bool = True
+    low_rank_pretraining: bool = False
     ortho_loss_weight: float = 1e-1 
     frobenius_loss_weight: float = 1e-5
     nuclear_norm_loss: bool = False
@@ -43,7 +43,7 @@ class TrainingConfig:
     low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
     # Timestep-conditioned rank scheduling
-    timestep_conditioning: bool = True
+    timestep_conditioning: bool = False
     rank_schedule: str = "logistic_decreasing"  # "decreasing", "increasing", "midpeak"
     rank_min_ratio: float = 0.5
     # Selective timestep conditioning - apply only to specific transformer blocks
@@ -52,7 +52,7 @@ class TrainingConfig:
     # If both are 0, applies to all blocks (original behavior)
     timestep_conditioning_match_type: str = "total" # "activated", "total"
     timestep_conditioning_total_blocks: int = 0  # Override total blocks (0 = auto-detect)
-    curriculum_learning: bool = True
+    curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
     curriculum_learning_timestep_num_groups: int = 10
     curriculum_learning_current_group_portion: float = 0.8
@@ -61,12 +61,12 @@ class TrainingConfig:
     curriculum_learning_start_from_low: bool = False
     curriculum_learning_start_from_middle: bool = False
     curriculum_learning_middle_group_index: int = 7
-    real_features_path: str = "data/fid_features/CIFAR10_train_features_fp64.pt"
+    real_features_path: str = "data/fid_features/CIFAR10_train_features_fp64_0.3.pt"
     load_pretrained_model: bool = False
     pretrained_model_path: Optional[str] = "logs/DiT20250801_173806/model_0089.pt"
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = False
-    use_latents: bool = False
+    use_latents: bool = True
     push_to_hub: bool = False
     hub_private_repo: bool = False
     overwrite_output_dir: bool = True
