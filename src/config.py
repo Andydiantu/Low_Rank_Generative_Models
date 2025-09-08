@@ -20,9 +20,9 @@ class TrainingConfig:
     # save_image_epochs: int = 30
     # save_model_epochs: int = 30
     # evaluate_fid_epochs: int = 150
-    validation_epochs: int = 1 # for testing
-    save_image_epochs: int = 1 # for testing
-    save_model_epochs: int = 1 # for testing
+    validation_epochs: int = 3 # for testing
+    save_image_epochs: int = 3 # for testing
+    save_model_epochs: int = 3 # for testing
     evaluate_fid_epochs: int = 200 # for testing
     eval_dataset_size: int = 1024
     noise_scheduler: str = "DDIM"
@@ -38,19 +38,19 @@ class TrainingConfig:
     nuclear_norm_loss_weight: float = 1e-5
     frobenius_norm_loss: bool = False
     frobenius_norm_loss_weight: float = 1e-6
-    low_rank_rank: float = 0.25
+    low_rank_rank: float = 0.75
     low_rank_compression: bool = False
     low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
     # Timestep-conditioned rank scheduling
     timestep_conditioning: bool = False
     rank_schedule: str = "logistic_decreasing"  # "decreasing", "increasing", "midpeak"
-    rank_min_ratio: float = 0.5
+    rank_min_ratio: float = 0.4
     # Selective timestep conditioning - apply only to specific transformer blocks
     timestep_conditioning_first_n_blocks: int = 0  # Apply to first n blocks (0 = disabled)
     timestep_conditioning_last_n_blocks: int = 0   # Apply to last n blocks (0 = disabled)
     # If both are 0, applies to all blocks (original behavior)
-    timestep_conditioning_match_type: str = "total" # "activated", "total"
+    timestep_conditioning_match_type: str = "activated" # "activated", "total"
     timestep_conditioning_total_blocks: int = 0  # Override total blocks (0 = auto-detect)
     curriculum_learning: bool = False
     curriculum_learning_patience: int = 5
@@ -63,7 +63,7 @@ class TrainingConfig:
     curriculum_learning_middle_group_index: int = 7
     real_features_path: str = "data/fid_features/CIFAR10_train_features_fp64_0.3.pt"
     load_pretrained_model: bool = False
-    pretrained_model_path: Optional[str] = "logs/DiT20250801_173806/model_0089.pt"
+    pretrained_model_path: Optional[str] = "logs/DiT20250903_170915/model_0008.pt"
     # mixed_precision: str = "fp16" # Uncomment and type if used
     vae: bool = False
     use_latents: bool = True
@@ -72,6 +72,8 @@ class TrainingConfig:
     overwrite_output_dir: bool = True
     seed: int = 0
     output_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs" / ("DiT" + datetime.now().strftime("%Y%m%d_%H%M%S")))
+    # If set, when loading ImageNet will restrict to labels in [0, n-1]
+    imagenet_first_n_classes: Optional[int] = 400
 
 
 @dataclass

@@ -1,0 +1,10 @@
+python -u src/DiT_trainer.py --set num_epochs=1200
+
+====================================
+CPU Time used: 24:16:01
+CPU Percent: 102%
+Memory usage: 13903736kb
+Approx Power usage: 0.2912
+Walltime usage: 24:00:22
+
+====================================

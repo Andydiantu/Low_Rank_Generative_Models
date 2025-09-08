@@ -7,9 +7,92 @@ from torchvision import transforms
 from config import TrainingConfig
 import numpy as np
 
+def print_class_distribution(dataset, dataset_name, is_latent_dataset=False, max_classes_to_show=20):
+    """Print per-class counts for a dataset"""
+    try:
+        labels = []
+        
+        if is_latent_dataset:
+            # For LatentsTorchDataset
+            if dataset.labels is not None:
+                if isinstance(dataset.labels, torch.Tensor):
+                    labels = dataset.labels.tolist()
+                else:
+                    labels = list(dataset.labels)
+        else:
+            # For HuggingFace datasets - sample a subset for efficiency on large datasets
+            sample_size = min(len(dataset), 10000)  # Sample max 10k items for class counting
+            indices = np.random.choice(len(dataset), sample_size, replace=False) if len(dataset) > sample_size else range(len(dataset))
+            
+            for idx in indices:
+                item = dataset[idx]
+                if isinstance(item, dict):
+                    if "label" in item and item["label"] is not None:
+                        labels.append(item["label"])
+                    elif "labels" in item and item["labels"] is not None:
+                        labels.append(item["labels"])
+        
+        if labels:
+            class_counts = Counter(labels)
+            total_samples = len(labels)
+            num_classes = len(class_counts)
+            
+            print(f"\n=== Class Distribution for {dataset_name} ===")
+            print(f"Total samples: {total_samples}")
+            print(f"Number of classes: {num_classes}")
+            
+            # Sort by class label
+            sorted_classes = sorted(class_counts.items())
+            
+            # Show first max_classes_to_show classes
+            classes_to_show = sorted_classes[:max_classes_to_show]
+            for class_id, count in classes_to_show:
+                percentage = (count / total_samples) * 100
+                print(f"  Class {class_id}: {count} samples ({percentage:.1f}%)")
+            
+            if len(sorted_classes) > max_classes_to_show:
+                remaining = len(sorted_classes) - max_classes_to_show
+                print(f"  ... and {remaining} more classes")
+            
+            # Show statistics
+            counts = list(class_counts.values())
+            print(f"Min samples per class: {min(counts)}")
+            print(f"Max samples per class: {max(counts)}")
+            print(f"Avg samples per class: {np.mean(counts):.1f}")
+            print("=" * 50)
+        else:
+            print(f"No labels found for {dataset_name}")
+            
+    except Exception as e:
+        print(f"Error computing class distribution for {dataset_name}: {e}")
+
+def filter_latent_dataset_by_class(dataset, n_classes):
+    """Filter LatentsTorchDataset to keep only first n_classes"""
+    if dataset.labels is None:
+        print("Warning: No labels found in latent dataset, cannot filter by class")
+        return dataset
+    
+    # Convert labels to tensor if needed
+    labels = dataset.labels
+    if not isinstance(labels, torch.Tensor):
+        labels = torch.tensor(labels)
+    
+    # Create mask for first n classes
+    mask = labels < n_classes
+    
+    # Filter latents and labels
+    filtered_latents = dataset.latents[mask]
+    filtered_labels = labels[mask]
+    
+    return LatentsTorchDataset(filtered_latents, filtered_labels)
+
 def load_dataset_from_hf(dataset_name, split):
     dataset = load_dataset(dataset_name, split=split)
     print(f"Loaded dataset {dataset_name} {split} split with {len(dataset)} images")
+    
+    # Print per-class counts
+    print_class_distribution(dataset, dataset_name)
+    
     return dataset
 
 class LatentsTorchDataset(torch.utils.data.Dataset):
@@ -47,7 +130,12 @@ def load_pre_encoded_latents(dataset_name, split):
         else:
             print(f"Labels length: {len(labels)}")
 
-    return LatentsTorchDataset(latents, labels)
+    dataset = LatentsTorchDataset(latents, labels)
+    
+    # Print per-class counts for latent dataset
+    print_class_distribution(dataset, dataset_name, is_latent_dataset=True)
+    
+    return dataset
 
 
 def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents=False):
@@ -93,8 +181,24 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
 def create_dataloader(dataset_name, split, config, eval=False, latents=False, subset_size = None):
     if latents:
         dataset = load_pre_encoded_latents(dataset_name, split)
+        # Optionally restrict ImageNet latents to first N classes by label id
+        if ("imagenet" in dataset_name.lower() or "imagenet-1k" in dataset_name.lower()) and getattr(config, "imagenet_first_n_classes", None):
+            n = int(config.imagenet_first_n_classes)
+            dataset = filter_latent_dataset_by_class(dataset, n)
+            print(f"Filtered ImageNet latents to first {n} classes → {len(dataset)} samples")
+            # Print class distribution after filtering
+            print_class_distribution(dataset, f"{dataset_name} latents (filtered to {n} classes)", is_latent_dataset=True)
     else:
         dataset = load_dataset_from_hf(dataset_name, split=split)
+        # Optionally restrict ImageNet to first N classes by label id
+        
+        if ("imagenet" in dataset_name.lower() or "imagenet-1k" in dataset_name.lower()) and getattr(config, "imagenet_first_n_classes", None):
+            n = int(config.imagenet_first_n_classes)
+            # HF dataset returns dicts with 'label'
+            dataset = dataset.filter(lambda x: ("label" in x) and (x["label"] is not None) and (int(x["label"]) < n))
+            print(f"Filtered ImageNet to first {n} classes → {len(dataset)} samples")
+            # Print class distribution after filtering
+            print_class_distribution(dataset, f"{dataset_name} (filtered to {n} classes)")
         dataset = preprocess_dataset(dataset, config, split, dataset_name, eval)
     
     if subset_size is not None:

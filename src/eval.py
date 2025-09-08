@@ -57,11 +57,11 @@ class Eval:
     def compute_metrics(self, pipeline, num_samples = 5000):
         # TODO: Make this conditional and parameterise the number of classes
         if self.cfg_enabled:
-            per_class = num_samples // 10
-            labels = torch.arange(10).repeat(per_class)  
+            per_class = num_samples // 400              # 1000 classes in ImageNet
+            labels = torch.arange(400).repeat(per_class)  
             labels = labels[torch.randperm(num_samples)]
         else:
-            labels = torch.zeros(num_samples, dtype=torch.long, device=self.fid.device)
+            labels = torch.zeros(num_samples, dtype=torch.long, device=self.fid.device) # unconditional generation  
 
         batch_num = num_samples // self.eval_batch_size
         for i in range(batch_num):

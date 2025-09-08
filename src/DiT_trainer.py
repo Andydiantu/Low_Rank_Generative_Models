@@ -661,7 +661,7 @@ class DiTTrainer:
 
         # Sample some images from random noise (this is the backward diffusion process).
         images = pipeline(
-            class_labels=[i % 10 for i in range(config.eval_batch_size)] if config.cfg_enabled else torch.zeros(config.eval_batch_size, dtype=torch.long),
+            class_labels=[i for i in range(config.eval_batch_size)] if config.cfg_enabled else torch.zeros(config.eval_batch_size, dtype=torch.long),
             generator = torch.Generator(device=next(self.model.parameters()).device).manual_seed(config.seed),
             num_inference_steps=config.num_inference_steps,
             guidance_scale=config.guidance_scale if config.cfg_enabled else 1,
@@ -816,7 +816,7 @@ def main():
     # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
 
     train_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True)
-    validation_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True)
+    validation_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True, subset_size=0.01)
 
     print("finish loading dataset")
 
