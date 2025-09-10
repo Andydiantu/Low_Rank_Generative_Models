@@ -7,6 +7,7 @@ from typing import List, Optional
 import torch
 from diffusers import DiTPipeline
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
+from low_rank_compression import low_rank_layer_replacement, TimestepConditionedWrapper
 
 # Add the src directory to Python path so we can import custom modules
 script_dir = Path(__file__).parent
@@ -33,9 +34,21 @@ def load_pipeline_from_checkpoint(checkpoint_path: str, device: torch.device) ->
     config = TrainingConfig()
     print(f"Config: vae={config.vae}, use_latents={config.use_latents}")
     
-    # Create model, scheduler, and VAE exactly like in training
+    # Create model gpucluster2.doc.ic.ac.uk, scheduler, and VAE exactly like in training
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
+
+    if config.low_rank_pretraining:
+        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank)
+        print(f"Low-rank parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+            # Wrap with timestep conditioning if enabled
+        if config.timestep_conditioning:
+            model = TimestepConditionedWrapper(model, config)
+            print("Enabled timestep-conditioned rank scheduling")
+            print(f"  Schedule: {config.rank_schedule}")
+            print(f"  Min ratio: {config.rank_min_ratio}")
+            print(f"  Max timesteps: {config.num_training_steps}")
     
     # Create VAE based on config flags, matching the training logic exactly
     if not config.vae and config.use_latents:
@@ -58,13 +71,19 @@ def load_pipeline_from_checkpoint(checkpoint_path: str, device: torch.device) ->
     if os.path.isfile(checkpoint_path) and checkpoint_path.endswith(".pt"):
         print(f"Loading weights from {checkpoint_path}...")
         state_dict = torch.load(checkpoint_path, map_location="cpu")
-        model.load_state_dict(state_dict)
+        if config.timestep_conditioning:
+            model.base_model.load_state_dict(state_dict)
+        else:
+            model.load_state_dict(state_dict)
         print("✅ Successfully loaded model weights")
     elif os.path.isdir(checkpoint_path):
         print("Directory provided but no weights file specified. Using randomly initialized model.")
     else:
         raise ValueError("checkpoint_path must be a .pt weights file or a directory")
     
+
+
+
     # Create the pipeline
     pipeline = DiTPipeline(
         transformer=model,
@@ -110,7 +129,7 @@ def generate_images(
 
     # Create class labels for generation
     if cfg_enabled:
-        class_labels = list(range(num_images))
+        class_labels = list(range(num_images+380))
         print(f"Generating {num_images} images with class labels 0-{num_images-1} and CFG scale {guidance_scale}")
     else:
         class_labels = torch.zeros(num_images, dtype=torch.long, device=device)

@@ -8,7 +8,7 @@ def create_model(config):
         in_channels=config.latent_channels if using_latents else config.pixel_channels,
         out_channels=config.latent_channels if using_latents else config.pixel_channels,
         num_layers=12,  # DiT-S/2 uses 12 layers
-        num_attention_heads=6,  # DiT-S/2 uses 6 heads
+        num_attention_heads=12 if config.model == "DiT-B/2" else 6,  # DiT-S/2 uses 6 heads
         attention_head_dim=64,  # This gives 384 total dim (6*64)
         patch_size=2,
     )

@@ -812,21 +812,17 @@ def main():
     # config = LDConfig()
     print_config(config)
 
-    # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
-    # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
-
-    train_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True)
-    validation_loader = create_dataloader("imagenet-1k-128x128", "train", config, latents=True, subset_size=0.01)
+    if config.dataset == "imagenet":
+        train_loader = create_dataloader("imagenet-1k-128x128", "train", config)
+        validation_loader = create_dataloader("imagenet-1k-128x128", "train", config, subset_size=0.01)
+    elif config.dataset == "cifar10":
+        train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
+        validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    elif config.dataset == "celebA":
+        train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
+        validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True, subset_size=0.01)
 
     print("finish loading dataset")
-
-    # train_loader = create_dataloader("uoft-cs/cifar10", "train", config, subset_size=0.3)
-    # validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True, subset_size=0.3)
-
-    # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
-    # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True)
-
-    # train_loader, validation_loader = create_lantent_dataloader_celebA(config)
 
     model = create_model(config)
     noise_scheduler = create_noise_scheduler(config)
@@ -864,7 +860,6 @@ def main():
         def count_parameters(model):
             return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        
         print(f"number of parameters in model: {count_parameters(model)}")
         model = apply_low_rank_compression(model, threshold=0.9)
         print(f"number of parameters in model after compression is: {count_parameters(model)}")

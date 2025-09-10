@@ -1,0 +1,12 @@
+logs/
+data/
+wandb/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+notebooks/
+src/.ipynb_checkpoints/
+tmux_log/
