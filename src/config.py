@@ -38,7 +38,7 @@ class TrainingConfig:
     nuclear_norm_loss_weight: float = 1e-5
     frobenius_norm_loss: bool = False
     frobenius_norm_loss_weight: float = 1e-6
-    low_rank_rank: float = 0.75
+    low_rank_rank: float = 0.5
     low_rank_compression: bool = False
     low_rank_gradient: bool = False
     low_rank_gradient_rank: int = 32
@@ -73,7 +73,7 @@ class TrainingConfig:
     seed: int = 0
     output_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs" / ("DiT" + datetime.now().strftime("%Y%m%d_%H%M%S")))
     # If set, when loading ImageNet will restrict to labels in [0, n-1]
-    imagenet_first_n_classes: Optional[int] = 400
+    imagenet_first_n_classes: Optional[int] = 200
 
 
 @dataclass

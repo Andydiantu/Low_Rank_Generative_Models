@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=4:mem=16gb:ngpus=1
-#PBS -l walltime=24:0:0
+#PBS -l walltime=48:0:0
 #PBS -N DiT_origin_train_galore
 
 
@@ -12,7 +12,7 @@ conda activate andy_diss
 
 note="DiT_origin_train_galore"
 
-cmd="python -u src/DiT_trainer.py --set num_epochs=1200"
+cmd="python -u src/DiT_trainer.py --set num_epochs=800 --set low_rank_pretraining=True --set timestep_conditioning=True"
 
 
 echo $cmd
