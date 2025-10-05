@@ -8,8 +8,6 @@ from preprocessing import create_dataloader
 from DiT import create_noise_scheduler
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
-from matplotlib.patches import Rectangle
 
 
 def print_gpu_memory_usage(stage: str = ""):
@@ -20,7 +18,7 @@ def print_gpu_memory_usage(stage: str = ""):
         print(f"GPU Memory {stage}: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
 
 
-def projection_loss(G1, G2, energy_threshold: float = 0.99):
+def projection_loss(G1, G2, energy_threshold: float = 0.95):
     # Assume G1 and G2 are (d × n) gradient matrices
     U, _, _ = torch.linalg.svd(G1, full_matrices=False)
     P = U[:, :effective_rank(G1, energy_threshold)]
@@ -30,11 +28,9 @@ def projection_loss(G1, G2, energy_threshold: float = 0.99):
 
 
 
-def effective_rank(w: torch.Tensor, energy_threshold: float = 0.99) -> int:
+def effective_rank(w: torch.Tensor, energy_threshold: float = 0.95) -> int:
     """Compute the effective rank (number of singular values capturing `energy_threshold` of spectral energy)."""
     # Keep tensor on original device (GPU if available)
-    device = w.device
-    
     if w.ndim > 2:
         w = w.flatten(1)  # (out_channels, in_channels * kernel_size)
     # Ensure smaller dimension is along rows
@@ -53,7 +49,7 @@ def effective_rank(w: torch.Tensor, energy_threshold: float = 0.99) -> int:
 
 
 
-def subspace_overlap(G1, G2, energy_threshold: float = 0.99):
+def subspace_overlap(G1, G2, energy_threshold: float = 0.95):
     """Compute subspace overlap between two gradient matrices on GPU."""
     # Ensure both tensors are on the same device (preferably GPU)
     device = G1.device
@@ -86,11 +82,11 @@ def subspace_overlap(G1, G2, energy_threshold: float = 0.99):
         principal_angles = torch.acos(singular_values)
 
         # Compute similarity and distance measures
-        similarity = (singular_values ** 2).mean().item()
+        similarity = (singular_values).mean().item()
         
     return principal_angles, similarity
 
-def get_gradient_subspace_overlap(grads, energy_threshold: float = 0.99):
+def get_gradient_subspace_overlap(grads, energy_threshold: float = 0.95):
     """
     Calculate subspace overlap for the same layers between different timestep groups on GPU.
     
@@ -250,10 +246,10 @@ def visualize_layer_similarities(overlap_results, num_timestep_groups, checkpoin
         # Add text annotations with better formatting
         for i in range(num_timestep_groups):
             for j in range(num_timestep_groups):
-                text = ax.text(j, i, f'{matrix[i, j]:.2f}', 
-                             ha="center", va="center", 
-                             color="white" if matrix[i, j] < 0.5 else "black",
-                             fontsize=9, weight='bold')
+                ax.text(j, i, f'{matrix[i, j]:.2f}', 
+                        ha="center", va="center", 
+                        color="white" if matrix[i, j] < 0.5 else "black",
+                        fontsize=9, weight='bold')
     
     # Hide empty subplots
     for idx in range(n_layers, rows * cols):
@@ -323,10 +319,10 @@ def visualize_layer_projection_losses(overlap_results, num_timestep_groups, chec
         # Add text annotations with better formatting
         for i in range(num_timestep_groups):
             for j in range(num_timestep_groups):
-                text = ax.text(j, i, f'{matrix[i, j]:.3f}', 
-                             ha="center", va="center", 
-                             color="white" if matrix[i, j] > vmax/2 else "black",
-                             fontsize=9, weight='bold')
+                ax.text(j, i, f'{matrix[i, j]:.3f}', 
+                        ha="center", va="center", 
+                        color="white" if matrix[i, j] > vmax/2 else "black",
+                        fontsize=9, weight='bold')
     
     # Hide empty subplots
     for idx in range(n_layers, rows * cols):
@@ -473,6 +469,49 @@ def visualize_similarity_summary(overlap_results, checkpoint_name, save_dir):
     
     plt.tight_layout(pad=3.0)  # Added padding to prevent text overlap
     plt.savefig(save_dir / f'similarity_summary_checkpoint_{checkpoint_name}.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def visualize_overall_timestep_group_similarity(overlap_results, num_timestep_groups, checkpoint_name, save_dir):
+    """Create a single heatmap per checkpoint averaging similarities across layers."""
+    save_dir = Path(save_dir)
+    save_dir.mkdir(exist_ok=True)
+
+    if not overlap_results:
+        return
+
+    # Accumulate similarities per timestep pair across layers
+    pair_sums = {}
+    pair_counts = {}
+    for layer_results in overlap_results.values():
+        for pair_key, sim in layer_results['similarities'].items():
+            pair_sums[pair_key] = pair_sums.get(pair_key, 0.0) + sim
+            pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
+
+    # Build averaged similarity matrix
+    matrix = np.eye(num_timestep_groups)
+    for pair_key, total in pair_sums.items():
+        parts = pair_key.split('_')
+        i, j = int(parts[1]), int(parts[3])
+        avg_sim = total / max(pair_counts[pair_key], 1)
+        matrix[i, j] = avg_sim
+        matrix[j, i] = avg_sim
+
+    plt.figure(figsize=(6, 5))
+    plt.title(f'Overall Timestep Group Similarity\nCheckpoint {checkpoint_name}')
+    im = plt.imshow(matrix, cmap='viridis', vmin=0, vmax=1)
+    plt.xlabel('Timestep Group')
+    plt.ylabel('Timestep Group')
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+
+    # Annotations
+    for i in range(num_timestep_groups):
+        for j in range(num_timestep_groups):
+            plt.text(j, i, f'{matrix[i, j]:.2f}', ha="center", va="center",
+                     color="white" if matrix[i, j] < 0.5 else "black", fontsize=9, weight='bold')
+
+    plt.tight_layout()
+    plt.savefig(save_dir / f'overall_timestep_similarity_checkpoint_{checkpoint_name}.png', dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -732,11 +771,13 @@ def get_gradient_timestep_group(max_timestep: int, min_timestep: int, model, dat
 
 def main():
     config = TrainingConfig()
-    config.train_batch_sie = 128
+    config.train_batch_size = 64
+    config.image_size = 32
     config.low_rank_gradient = True
-    num_timestep_groups = 10
+    num_timestep_groups = 5
 
-    checkpoint_list = ["0099", "0199", "0299", "0399", "0499"]
+    # checkpoint_list = ["0099", "0199", "0299", "0399", "0499"]
+    checkpoint_list = [ "1999", "2099"]
     
     # Create visualization directory
     viz_dir = Path(__file__).parent.parent / "visualizations_new" / "gradient_subspace_overlap"
@@ -757,11 +798,11 @@ def main():
         print_gpu_memory_usage("start of checkpoint")
         
         # low rank counter part
-        new_folder = "DiT20250626_213046"
         
-        load_pretrain_model_path = Path(__file__).parent.parent / "logs"  / "DiT20250529_232857" / f"model_{checkpoint}.pt"  
+        load_pretrain_model_path = Path(__file__).parent.parent / "logs"  / "DiT20250726_235632" / f"model_{checkpoint}.pt"  
 
         model = create_model(config)
+        model.config.patch_size = 2
         model.to(device)
         noise_scheduler = create_noise_scheduler(config)
         model.load_state_dict(torch.load(load_pretrain_model_path))
@@ -793,7 +834,7 @@ def main():
         # Calculate subspace overlap for this checkpoint
         print(f"\n=== Calculating subspace overlap for checkpoint {checkpoint} ===")
         print_gpu_memory_usage("before subspace analysis")
-        overlap_results = get_gradient_subspace_overlap(grads, energy_threshold=0.99)
+        overlap_results = get_gradient_subspace_overlap(grads, energy_threshold=0.95)
         print_gpu_memory_usage("after subspace analysis")
         
         # Clear GPU cache to free memory
@@ -828,22 +869,25 @@ def main():
             visualize_similarity_summary(overlap_results, checkpoint, viz_dir)
             print(f"✓ Created similarity summary plots for checkpoint {checkpoint}")
             
+            visualize_overall_timestep_group_similarity(overlap_results, num_timestep_groups, checkpoint, viz_dir)
+            print(f"✓ Created overall timestep-group similarity heatmap for checkpoint {checkpoint}")
+            
         except Exception as e:
             print(f"Error creating visualizations for checkpoint {checkpoint}: {e}")
             
         print(f"Completed analysis for checkpoint {checkpoint}")
 
     # Create cross-checkpoint analysis
-    print(f"\n=== Creating cross-checkpoint analysis ===")
+    print("\n=== Creating cross-checkpoint analysis ===")
     try:
         visualize_cross_checkpoint_analysis(all_checkpoint_results, viz_dir)
-        print(f"✓ Created cross-checkpoint analysis")
+        print("✓ Created cross-checkpoint analysis")
     except Exception as e:
         print(f"Error creating cross-checkpoint analysis: {e}")
     
-    print(f"\n=== Analysis Complete ===")
+    print("\n=== Analysis Complete ===")
     print(f"All visualizations saved to: {viz_dir}")
-    print(f"Generated files:")
+    print("Generated files:")
     for file in viz_dir.glob("*.png"):
         print(f"  - {file.name}")
 

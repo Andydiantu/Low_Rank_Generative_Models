@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import time
 import argparse
 import json
 from dataclasses import fields as dataclass_fields
@@ -10,6 +9,8 @@ try:
 except Exception:
     yaml = None
 
+import copy
+
 import torch
 import torch.profiler
 from diffusers import DiTPipeline
@@ -18,17 +19,16 @@ from diffusers.training_utils import EMAModel
 from PIL import Image
 from torch.nn import functional as F
 from tqdm.auto import tqdm
-from galore_torch import GaLoreAdamW, GaLoreEvalAdamW
+from galore_torch import GaLoreEvalAdamW
 import matplotlib.pyplot as plt
 import numpy as np
 from training_monitor import TrainingMonitor
 from config import TrainingConfig, LDConfig, print_config
 from DiT import create_model, create_noise_scheduler, print_model_settings, print_noise_scheduler_settings
 from eval import Eval, plot_loss_curves
-from preprocessing import create_dataloader, create_lantent_dataloader_celebA
+from preprocessing import create_dataloader
 from vae import SD_VAE, DummyAutoencoderKL
-from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, low_rank_layer_replacement, LowRankLinear, nuclear_norm, frobenius_norm, TimestepConditionedWrapper
-
+from low_rank_compression import label_low_rank_gradient_layers,apply_low_rank_compression, TimestepConditionedWrapper
 
 
 def _coerce_value_for_type(value_str, type_hint):
@@ -66,9 +66,10 @@ def _build_kwargs_for_config(config_cls, values_dict):
     return kwargs
 
 
-class DiTTrainer:
-    def __init__(self, model, noise_scheduler, train_dataloader, validation_dataloader, config):
-        self.model = model
+class DiTDistillTrainer:
+    def __init__(self, student_model, teacher_model, noise_scheduler, train_dataloader, validation_dataloader, config):
+        self.model = student_model
+        self.teacher = teacher_model
         self.noise_scheduler = noise_scheduler
         self.train_dataloader = train_dataloader
         self.validation_dataloader = validation_dataloader
@@ -99,6 +100,7 @@ class DiTTrainer:
                 self.model.set_timestep_lower_bound(boundaries[0])
                 print(f"Setting timestep lower bound to {boundaries[0]}")
 
+        # Optimizer setup (student only)
         if not config.low_rank_gradient:
             self.optimizer = torch.optim.AdamW(
                 self.model.parameters(),
@@ -136,17 +138,17 @@ class DiTTrainer:
         else:
             self.vae = DummyAutoencoderKL()
 
+        # Teacher frozen
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+        self.teacher.eval()
+
+        # KD hyperparameters (with sensible defaults if missing)
+        self.kd_alpha = getattr(self.config, "kd_alpha", 0.5)
+        self.kd_temperature = getattr(self.config, "kd_temperature", 1.0)
+
     def train_loop(self):
-        logging_dir = os.path.join(self.config.output_dir, "logs")
-        # accelerator_project_config = ProjectConfiguration(
-        #     project_dir=self.config.output_dir, logging_dir=logging_dir
-        # )
-        # accelerator = Accelerator(
-        #     # mixed_precision=self.config.mixed_precision,
-        #     gradient_accumulation_steps=self.config.gradient_accumulation_steps,
-        #     log_with="tensorboard",
-        #     project_config=accelerator_project_config,
-        # )
+        # logging_dir = os.path.join(self.config.output_dir, "logs")
         if torch.cuda.is_available():
             device = torch.device("cuda")
         else:
@@ -154,14 +156,16 @@ class DiTTrainer:
 
         if torch.cuda.is_available():
             os.makedirs(self.config.output_dir, exist_ok=True)
-            # accelerator.init_trackers("train_example")
 
-        model, optimizer, train_dataloader, lr_scheduler, vae, ema_model, validation_dataloader = (
+        # Move VAE to device
+        self.vae = self.vae.to(device)
+
+        model, teacher, optimizer, train_dataloader, lr_scheduler, ema_model, validation_dataloader = (
             self.model.to(device),
+            self.teacher.to(device),
             self.optimizer,
             self.train_dataloader,
             self.lr_scheduler,
-            self.vae.to(device),
             self.ema_model,
             self.validation_dataloader
         )
@@ -184,10 +188,8 @@ class DiTTrainer:
             progress_bar.set_description(f"Epoch {epoch}")
 
             epoch_train_loss = 0.0
-            epoch_ortho_loss = 0.0
-            epoch_frobenius_loss = 0.0
-            epoch_nuclear_norm_loss = 0.0
-            epoch_frobenius_norm_loss = 0.0
+            epoch_kd_loss = 0.0
+            epoch_sup_loss = 0.0
             epoch_projection_loss = 0.0
             epoch_current_timestep_group_loss = 0.0
             for step, batch in enumerate(train_dataloader):
@@ -208,7 +210,6 @@ class DiTTrainer:
                     trained_low_bound = trained_boundaries[0]
                     trained_high_bound = trained_boundaries[1]
 
-
                     # Split batch in half: first half samples from [low_bound, high_bound], 
                     # second half samples from [high_bound, num_train_timesteps]
                     current_group_boundaries = self.training_monitor.get_current_group_range()
@@ -216,10 +217,6 @@ class DiTTrainer:
                     current_high_bound = current_group_boundaries[1]
 
                     if not trained_high_bound == trained_low_bound:
-
-                        
-                        # first_batch = int(batch_size * self.config.curriculum_learning_current_group_portion)
-                        # second_batch = batch_size - first_batch
 
                         second_batch = int((trained_high_bound - trained_low_bound) / (self.noise_scheduler.config.num_train_timesteps) * batch_size)
                         first_batch = batch_size - second_batch
@@ -242,7 +239,6 @@ class DiTTrainer:
                         timesteps = torch.cat([timesteps_first_half, timesteps_second_half], dim=0)
 
                         current_timestep_group_batch_size = first_batch
-
                         
                     else:
 
@@ -255,8 +251,6 @@ class DiTTrainer:
 
                         current_timestep_group_batch_size = batch_size
 
-
-
                 else:
                     high_bound = self.config.training_timestep_upper_bound
                     low_bound = self.config.training_timestep_lower_bound
@@ -266,8 +260,6 @@ class DiTTrainer:
                         (batch_size,),
                         device=clean_images.device,
                     ).long()
-
-                # print(f"sampling timesteps from {timesteps.min()} to {timesteps.max()}")
 
                 # Add dummy class labels if doing unconditional generation
                 class_labels = None
@@ -294,74 +286,40 @@ class DiTTrainer:
                 noisy_images = self.noise_scheduler.add_noise(latents, noise, timesteps)
 
                 optimizer.zero_grad()
-                # with torch.profiler.profile(
-                #     activities=[torch.profiler.ProfilerActivity.CPU,
-                #                 torch.profiler.ProfilerActivity.CUDA],
-                #     profile_memory=True,
-                #     record_shapes=True
-                # ) as prof:
 
-                #     # Predict the noise residual
-                pred = model(
+                # Student prediction
+                pred_student = model(
                     noisy_images, timesteps, class_labels_input, return_dict=False
                 )[0]
+
+                # Target for supervised part
                 if self.config.prediction_type == "epsilon":
                     target = noise
                 elif self.config.prediction_type == "v_prediction":
                     target = self.noise_scheduler.get_velocity(latents, noise, timesteps)
-                # print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
-                        
 
-                    
-                # alphas = self.noise_scheduler.alphas_cumprod[timesteps].to(latents.device)
-                # alphas = alphas.view(-1, 1, 1, 1)
-                # # snr = alphas**2 / (1 - alphas**2)  # SNR = alpha/(1-alpha)
-                # # print(snr)
-                # snr = alphas / (1 - alphas)  # SNR = alpha/(1-alpha)
-                # gamma  = 5.0
-                # loss_weight = torch.minimum(gamma / snr, torch.ones_like(snr))  # Eq. (1)
-                # print(loss_weight)
-             
-                loss = F.mse_loss(pred, target, reduction="none")
+                # Teacher prediction (no grad)
+                with torch.no_grad():
+                    pred_teacher = teacher(
+                        noisy_images, timesteps, class_labels_input, return_dict=False
+                    )[0]
 
+                # # Supervised loss
+                # sup_loss = F.mse_loss(pred_student, target, reduction="none").mean()
+
+                # KD loss (MSE between logits/predictions)
+                kd_loss = F.mse_loss(pred_student, pred_teacher, reduction="none").mean()
+
+                # Blend
+                loss = kd_loss
 
                 if self.config.curriculum_learning:
-                    loss_current_timestep_group = loss[:current_timestep_group_batch_size]
-
-                    loss_current_timestep_group = loss_current_timestep_group.mean()
-
+                    loss_current_timestep_group = F.mse_loss(pred_student[:current_timestep_group_batch_size], target[:current_timestep_group_batch_size], reduction='mean')
                     epoch_current_timestep_group_loss += loss_current_timestep_group.detach().item()
 
-                # loss = loss * loss_weight
-                loss = loss.mean()
-                    
-                # if self.config.low_rank_pretraining:
-                #     ortho_loss = self.config.ortho_loss_weight * sum(
-                #         m.orthogonality_loss(rho=0.01)
-                #         for m in model.modules() if isinstance(m, LowRankLinear)
-                #     )
-                #     epoch_ortho_loss += ortho_loss.detach().item()
-
-                #     frobenius_loss = self.config.frobenius_loss_weight * sum(
-                #         m.frobenius_loss()
-                #         for m in model.modules() if isinstance(m, LowRankLinear)
-                #     )
-                #     epoch_frobenius_loss += frobenius_loss.detach().item()
-
-                if self.config.nuclear_norm_loss:
-                    nuclear_norm_loss = self.config.nuclear_norm_loss_weight * nuclear_norm(model)
-                    loss = loss + nuclear_norm_loss
-                    epoch_nuclear_norm_loss += nuclear_norm_loss.detach().item()
-
-                if self.config.frobenius_norm_loss:
-                    frobenius_norm_loss = self.config.frobenius_norm_loss_weight * (frobenius_norm(model) ** 2) 
-                    loss = loss + frobenius_norm_loss
-                    epoch_frobenius_norm_loss += frobenius_norm_loss.detach().item()
-
+                # epoch_sup_loss += sup_loss.detach().item()
+                epoch_kd_loss += kd_loss.detach().item()
                 epoch_train_loss += loss.detach().item()
-
-                # if self.config.low_rank_pretraining:
-                #     loss = loss +  frobenius_loss 
 
                 loss.backward()
 
@@ -373,10 +331,7 @@ class DiTTrainer:
                     if p.grad is not None:
                         param_norm = p.grad.data.norm(2)
                         total_norm += param_norm.item() ** 2
-                
                 total_norm = total_norm ** 0.5  # Convert to L2 norm
-                
-                # Update gradient norms sliding window
                 self.epoch_gradient_norms.append(total_norm)
 
                 if self.config.low_rank_gradient:
@@ -386,42 +341,28 @@ class DiTTrainer:
                     for param_name, (err_F, err_cos) in projection_loss_dict.items():
                         total_projection_loss += err_F
                         num_layer_count += 1
-
-                    # print(f"average projection loss: {total_projection_loss.detach().cpu() / num_layer_count:.6f}")
-                    epoch_projection_loss += total_projection_loss / num_layer_count
+                    epoch_projection_loss += total_projection_loss / max(1, num_layer_count)
                 else:
                     optimizer.step()
 
-                
                 lr_scheduler.step()
                 ema_model.step(model.parameters())
-
-                # total_projection_loss = 0.0
-                # for param_name, (err_F, err_cos) in projection_loss_dict.items():
-                #     total_projection_loss += err_F
-                # print(f"total projection loss: {total_projection_loss:.6f}")
-
-
 
                 progress_bar.update(1)
                 logs = {
                     "loss": loss.detach().item(),
+                    # "sup_loss": sup_loss.detach().item(),
+                    "kd_loss": kd_loss.detach().item(),
                     "lr": lr_scheduler.get_last_lr()[0],
                     "step": global_step,
-                    # "nuclear_norm_loss": nuclear_norm_loss.detach().item() if self.config.nuclear_norm_loss else 0,
-                    # "frobenius_norm_loss": f"{frobenius_norm_loss.detach().item():.6f}" if self.config.frobenius_norm_loss else 0,
                     "grad_norm": f"{total_norm:.6f}",
                 }
-                
                 progress_bar.set_postfix(**logs)
-                # accelerator.log(logs, step=global_step)
                 global_step += 1
 
             avg_epoch_train_loss = epoch_train_loss / len(train_dataloader)
-            avg_epoch_ortho_loss = epoch_ortho_loss / len(train_dataloader)
-            avg_epoch_frobenius_loss = epoch_frobenius_loss / len(train_dataloader)
-            avg_epoch_nuclear_norm_loss = epoch_nuclear_norm_loss / len(train_dataloader)
-            avg_epoch_frobenius_norm_loss = epoch_frobenius_norm_loss / len(train_dataloader)
+            avg_epoch_sup_loss = epoch_sup_loss / len(train_dataloader)
+            avg_epoch_kd_loss = epoch_kd_loss / len(train_dataloader)
             avg_epoch_current_timestep_group_loss = epoch_current_timestep_group_loss / len(train_dataloader) if self.config.curriculum_learning else 0.0
             self.train_loss_history.append(avg_epoch_train_loss)
             if self.config.low_rank_gradient:
@@ -445,12 +386,8 @@ class DiTTrainer:
             torch.save(self.epoch_avg_gradient_norms, os.path.join(self.config.output_dir, "gradient_norms_history.pt"))
             self.plot_gradient_statistics()
 
-            
             print(f"avg_epoch_current_timestep_group_loss: {avg_epoch_current_timestep_group_loss}")
-            # if self.config.curriculum_learning and epoch % 2 == 0 and not self.training_monitor.get_if_curriculum_learning_is_done():
-            #     boundaries = self.training_monitor.get_current_group_range()
-            #     val_loss = self.validation_loss(model, ema_model, validation_dataloader, self.config, epoch, global_step, EMA = False, timestep_lower_bound = boundaries[0], timestep_upper_bound = boundaries[1])
-                # print(f"Validation loss: {val_loss}")
+
             if self.config.curriculum_learning and not self.training_monitor.get_if_curriculum_learning_is_done():
                 if self.training_monitor.call_simple_compare_best(avg_epoch_current_timestep_group_loss):
                     if self.config.low_rank_gradient:
@@ -461,7 +398,7 @@ class DiTTrainer:
                         print("Curriculum learning is done")
                         if isinstance(model, TimestepConditionedWrapper):
                             model.set_timestep_lower_bound(None)
-                            print(f"Setting timestep lower bound to None")
+                            print("Setting timestep lower bound to None")
                     else:
                         boundaries = self.training_monitor.get_current_group_range()
                         print(f"Current timestep groups low bound: {boundaries[0]}") 
@@ -477,7 +414,7 @@ class DiTTrainer:
                                                            weight_decay=self.config.weight_decay)
                         self.lr_scheduler = get_cosine_schedule_with_warmup(
                             optimizer=self.optimizer,
-                            num_warmup_steps=self.config.lr_warmup_steps * 0.5, # 30% of the warmup steps
+                            num_warmup_steps=int(self.config.lr_warmup_steps * 0.5),
                             num_training_steps=(len(self.train_dataloader) * (self.config.num_epochs - epoch)),
                         )
                         optimizer = self.optimizer
@@ -486,10 +423,7 @@ class DiTTrainer:
 
             # Print the loss, lr, and step to the log file if running on a SLURM job
             if "SLURM_JOB_ID" in os.environ:
-                print(f"Epoch {epoch} completed | loss: {avg_epoch_train_loss:.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
-                    #   (f" | ortho_loss: {avg_epoch_ortho_loss:.4f} | frobenius_loss: {avg_epoch_frobenius_loss:.4f}" if self.config.low_rank_pretraining else "") + 
-                    #   (f" | nuclear_norm_loss: {avg_epoch_nuclear_norm_loss:.4f}" if self.config.nuclear_norm_loss else "") +
-                    #   (f" | frobenius_norm_loss: {avg_epoch_frobenius_norm_loss:.4f}" if self.config.frobenius_norm_loss else "") +
+                print(f"Epoch {epoch} completed | loss: {avg_epoch_train_loss:.4f} | sup: {avg_epoch_sup_loss:.4f} | kd: {avg_epoch_kd_loss:.4f} | lr: {lr_scheduler.get_last_lr()[0]:.6f} | step: {global_step}" + 
                       (f" | grad_var: {self.epoch_gradient_variances[-1]:.6f}" if self.epoch_gradient_variances else "") +
                       (f" | grad_norm: {self.epoch_avg_gradient_norms[-1]:.6f}" if self.epoch_avg_gradient_norms else ""))                
             
@@ -527,9 +461,8 @@ class DiTTrainer:
                         if isinstance(model, TimestepConditionedWrapper):
                             original_timestep_lower_bound = model.timestep_lower_bound
                             model.set_timestep_lower_bound(None)
-                            print(f"Setting timestep lower bound to None")
+                            print("Setting timestep lower bound to None")
                         
-                        # Ensure pipeline gets a plain DiT transformer (unwrap if needed)
                         # Use wrapper to preserve timestep-conditioned masking during generation
                         transformer_for_generation = model
                         
@@ -552,7 +485,7 @@ class DiTTrainer:
 
                         if (
                             (epoch + 1) % self.config.evaluate_fid_epochs == 0
-                        ): 
+                        ):
                             self.evaluate_fid(self.config, pipeline)
 
                         if (
@@ -675,7 +608,7 @@ class DiTTrainer:
         if isinstance(model, TimestepConditionedWrapper):
             original_timestep_lower_bound = model.timestep_lower_bound
             model.set_timestep_lower_bound(None)
-            print(f"Setting timestep lower bound to None")
+            print("Setting timestep lower bound to None")
 
         if torch.cuda.is_available():
             device = torch.device("cuda")
@@ -752,7 +685,6 @@ class DiTTrainer:
                 val_progress_bar.set_postfix(**logs)
                 val_loss_epoch += val_loss.detach().item()
         avg_val_loss = val_loss_epoch / len(validation_dataloader)
-        # accelerator.log({"val_loss": avg_val_loss}, step=global_step)
         val_progress_bar.close()
         if EMA:
             ema_model.restore(model.parameters())
@@ -762,10 +694,9 @@ class DiTTrainer:
             print(f"Setting timestep lower bound to {original_timestep_lower_bound}")
 
         if "SLURM_JOB_ID" in os.environ:
-            print(f"Epoch {epoch} completed | val_loss: {avg_val_loss:.4f}\n")
+            print("Epoch {} completed | val_loss: {:.4f}\n".format(epoch, avg_val_loss))
 
         return avg_val_loss
-
 
 
 def main():
@@ -777,9 +708,21 @@ def main():
                         help="Path to JSON or YAML file with config values")
     parser.add_argument("--set", action="append", default=[],
                         help="Override config fields via key=value. Repeatable.")
+    parser.add_argument("--teacher-checkpoint", type=str, default=None,
+                        help="Path to teacher checkpoint (.pt) to load (overrides config if set)")
+    parser.add_argument("--kd-alpha", type=float, default=0.5,
+                        help="Weight for KD loss component (0..1)")
+    parser.add_argument("--compression-threshold", type=float, default=0.9,
+                        help="Energy threshold for SVD low-rank compression (0..1)")
+    parser.add_argument("--compression-rank", type=int, default=None,
+                        help="Fixed rank for SVD low-rank compression (overrides threshold if set)")
+    parser.add_argument("--compression-percentage", type=float, default=None,
+                        help="Per-layer parameter percentage to compute rank (same mechanism as low_rank_layer_replacement)")
     args = parser.parse_args()
 
     config_cls = TrainingConfig if args.config_class == "training" else LDConfig
+
+
 
     config_values = {}
     if args.config_file:
@@ -802,78 +745,61 @@ def main():
 
     kwargs = _build_kwargs_for_config(config_cls, config_values)
     config = config_cls(**kwargs)
-    # config = LDConfig()
+
+    # Attach KD/compression runtime options to config instance
+    config.kd_alpha = float(args.kd_alpha)
+    config.kd_temperature = 1.0
+    config.compression_threshold = args.compression_threshold
+    config.compression_rank = args.compression_rank
+    config.compression_percentage = 0.5
+
     print_config(config)
 
-    # train_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "train", config, subset_size=0.3)
-    # validation_loader = create_dataloader("benjamin-paine/imagenet-1k-128x128", "test", config, eval=True, subset_size=0.3)
+    # Dataloaders (match DiT trainer defaults)
+    train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
+    validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True, subset_size=0.01)
 
-    train_loader = create_dataloader("uoft-cs/cifar10", "train", config)
-    validation_loader = create_dataloader("uoft-cs/cifar10", "test", config, eval=True)
+    # Create teacher model and load checkpoint
+    teacher_model = create_model(config)
+    teacher_path = args.teacher_checkpoint
+    if teacher_path is None:
+        teacher_path = config.pretrained_model_path
+    path = Path(__file__).parent.parent / teacher_path
+    print(f"Loading teacher checkpoint from {path}")
+    teacher_model.load_state_dict(torch.load(path, map_location='cpu'))
+    print("Loading teacher complete")
 
-    # train_loader = create_dataloader("nielsr/CelebA-faces", "train", config)
-    # validation_loader = create_dataloader("nielsr/CelebA-faces", "train", config, eval=True, subset_size=0.01)
+    # Create student by copying teacher then applying SVD-based low-rank compression
+    student_model = copy.deepcopy(teacher_model)
+    if config.compression_rank is not None:
+        print(f"Applying low-rank compression with fixed rank={config.compression_rank}")
+        student_model = apply_low_rank_compression(student_model, rank=config.compression_rank)
+    elif config.compression_percentage is not None:
+        pct = float(config.compression_percentage)
+        print(f"Applying low-rank compression with percentage={pct}")
+        student_model = apply_low_rank_compression(student_model, percentage=pct)
+    else:
+        threshold = getattr(config, 'compression_threshold', 0.9)
+        print(f"Applying low-rank compression with energy threshold={threshold}")
+        student_model = apply_low_rank_compression(student_model, threshold=threshold)
 
-    # train_loader, validation_loader = create_lantent_dataloader_celebA(config)
-
-    model = create_model(config)
+  
     noise_scheduler = create_noise_scheduler(config)
 
-    print_model_settings(model)
+    print("Teacher model settings:")
+    print_model_settings(teacher_model)
+    print("Student model settings:")
+    if isinstance(student_model, TimestepConditionedWrapper):
+        print_model_settings(student_model.base_model)
+    else:
+        print_model_settings(student_model)
     print_noise_scheduler_settings(noise_scheduler)
 
-    if config.low_rank_pretraining:
-        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank, config=config)
-        print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-
-        # Wrap with timestep conditioning if enabled
-        if config.timestep_conditioning:
-            model = TimestepConditionedWrapper(model, config)
-            print("Enabled timestep-conditioned rank scheduling")
-            print(f"  Schedule: {config.rank_schedule}")
-            print(f"  Min ratio: {config.rank_min_ratio}")
-            print(f"  Max timesteps: {config.num_training_steps}")
-
-    if config.load_pretrained_model:
-        path = Path(__file__).parent.parent / config.pretrained_model_path
-        print(f"Loading pretrained model from {path}")
-        model.load_state_dict(torch.load(path))
-        print("Loading complete")
-
-
- 
-    trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
+    trainer = DiTDistillTrainer(student_model, teacher_model, noise_scheduler, train_loader, validation_loader, config)
     trainer.train_loop()
-
-    
-
-    if config.low_rank_compression:
-
-        def count_parameters(model):
-            return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-        
-        print(f"number of parameters in model: {count_parameters(model)}")
-        model = apply_low_rank_compression(model, threshold=0.9)
-        print(f"number of parameters in model after compression is: {count_parameters(model)}")
-        config.num_epochs = 1000 # finetune for 5 epoch TODO: parameterise this.
-        finetune_trainer = DiTTrainer(model, noise_scheduler, train_loader, validation_loader, config)
-        finetune_trainer.train_loop()
-
-        compressed_pipeline = DiTPipeline(
-            transformer=model,
-            scheduler=noise_scheduler,
-            vae=trainer.vae.vae if config.vae else trainer.vae,
-        )
-
-        # Move pipeline to the correct device
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        compressed_pipeline = compressed_pipeline.to(device)
-
-        compressed_pipeline.enable_attention_slicing()
-        fid_score = finetune_trainer.eval.compute_metrics(compressed_pipeline)
-        print(f"FID Score: {fid_score}")
 
 
 if __name__ == "__main__":
     main()
+
+

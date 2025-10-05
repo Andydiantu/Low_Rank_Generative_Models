@@ -177,7 +177,7 @@ class LowRankLinear(nn.Module):
         self.V.copy_(Vh_[:k, :] * root_S.view(-1, 1))   # [k, in]
         nn.init.constant_(self.bias, 0)
 
-    def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing", logistic_k=8.0, logistic_m=0.6, warmup_ratio=0.05):
+    def _active_ranks(self, t, T, r_min_ratio=0.5, schedule="decreasing", logistic_k=8.0, logistic_m=0.6, warmup_ratio=0.1):
         """
         Map per-sample timestep t -> active rank r(t).
         t: [B] int/float tensor; T: scalar max timestep.
@@ -317,7 +317,7 @@ class LowRankLinear(nn.Module):
         t: torch.Tensor = None,      # [B] timesteps (optional). If None -> no gating.
         T: int | float = None,       # max timestep (required if t is given)
         *,
-        r_min_ratio: float = 0.5,
+        r_min_ratio: float = 0.4,
         schedule: str = "decreasing",
         slice_if_uniform: bool = True,   # if all r_t equal, slice U/V to save FLOPs
         return_mask: bool = False
@@ -346,6 +346,9 @@ class LowRankLinear(nn.Module):
         B_x = x.shape[0]  # Actual batch size (could be patches)
         B_t = t.shape[0]  # Original timestep batch size
         
+        # Ensure timestep tensor is on the same device as model parameters and contiguous
+        t = t.to(device=self.U.device, dtype=torch.long).contiguous()
+        
         # Smart timestep handling for different processing levels
         if B_x == B_t:
             # Same batch size - direct use (image-level processing)
@@ -353,11 +356,13 @@ class LowRankLinear(nn.Module):
         elif B_x % B_t == 0:
             # Batch size is a multiple - likely patch-level processing
             patches_per_image = B_x // B_t
-            t_expanded = t.repeat_interleave(patches_per_image)  # [B_x]
+            # Use manual expansion instead of repeat_interleave for better device control
+            t_expanded = t.unsqueeze(1).expand(-1, patches_per_image).contiguous().view(-1)
         else:
             # Unexpected batch relationship: expand by nearest-repeat and trim/pad
             repeat = math.ceil(B_x / B_t)
-            t_expanded = t.repeat_interleave(repeat)
+            # Use manual expansion instead of repeat_interleave for better device control
+            t_expanded = t.unsqueeze(1).expand(-1, repeat).contiguous().view(-1)
             if t_expanded.shape[0] > B_x:
                 t_expanded = t_expanded[:B_x]
             elif t_expanded.shape[0] < B_x:
@@ -452,7 +457,7 @@ class LowRankLinear(nn.Module):
         return 0.5 * (self.U @ self.V).pow(2).sum()
 
 
-def apply_low_rank_compression(module, rank=None, threshold=None):
+def apply_low_rank_compression(module, rank=None, threshold=None, percentage=None):
     """
     Apply low-rank compression to a module's linear layers.
     
@@ -460,26 +465,36 @@ def apply_low_rank_compression(module, rank=None, threshold=None):
         module: The PyTorch module to compress
         rank: Fixed rank to use for all linear layers (optional)
         threshold: Energy threshold for adaptive rank determination (optional)
+        percentage: Target parameter percentage per layer using same mechanism as low_rank_layer_replacement (optional)
     
-    Note: Either rank or threshold must be provided, but not both.
+    Note: Provide exactly one of {rank, threshold, percentage}.
     """
-    if rank is not None and threshold is not None:
-        raise ValueError("Provide either rank or threshold, not both")
-    if rank is None and threshold is None:
-        raise ValueError("Either rank or threshold must be specified")
-    
-    for name, child in module.named_children():
-        if isinstance(child, nn.Linear):
-            low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank = None, initialise = False)
+    provided = [rank is not None, threshold is not None, percentage is not None]
+    if sum(provided) != 1:
+        raise ValueError("Provide exactly one of rank, threshold, or percentage")
 
-            if rank is not None:
-                low_rank_layer.svd_decomposition(child, rank=rank)
-                setattr(module, name, low_rank_layer)
+    def _recurse(mod, prefix=""):
+        for name, child in mod.named_children():
+            full_name = f"{prefix}.{name}" if prefix else name
+            if isinstance(child, nn.Linear) and "transformer_blocks.0.ff.net" not in full_name and "proj_out" not in full_name:
+                low_rank_layer = LowRankLinear(child.in_features, child.out_features, rank=None, initialise=False)
+
+                if rank is not None:
+                    low_rank_layer.svd_decomposition(child, rank=rank)
+                    setattr(mod, name, low_rank_layer)
+                elif threshold is not None:
+                    low_rank_layer.svd_decomposition(child, threshold=threshold)
+                    setattr(mod, name, low_rank_layer)
+                else:  # percentage is not None
+                    # Same mechanism used in low_rank_layer_replacement to match parameter budget per layer
+                    new_rank = int((child.in_features * child.out_features * percentage) / (child.in_features + child.out_features))
+                    new_rank = max(1, new_rank)
+                    low_rank_layer.svd_decomposition(child, rank=new_rank)
+                    setattr(mod, name, low_rank_layer)
             else:
-                low_rank_layer.svd_decomposition(child, threshold=threshold)
-                setattr(module, name, low_rank_layer)
-        else:
-            apply_low_rank_compression(child, rank=rank, threshold=threshold)
+                _recurse(child, full_name)
+
+    _recurse(module)
 
     return module
 

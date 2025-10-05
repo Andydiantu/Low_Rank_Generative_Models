@@ -255,12 +255,15 @@ def calculate_model_flops(model, input_shape, device="cpu", verbose=True, max_ti
     model.eval().to(device)
 
     # Dummy inputs
-    B = 1
+    B = 128
     C, H, W = input_shape["channels"], input_shape["height"], input_shape["width"]
     x = torch.randn(B, C, H, W, device=device)
 
+    print(x.shape)
+
     # t = torch.randint(0, max_timesteps, (B,), dtype=torch.long, device=device)
-    t = torch.randint(999, 1000, (B,), dtype=torch.long, device=device)
+    t = torch.tensor([0], dtype=torch.long, device=device)
+    print(t)
 
     num_classes = _maybe_get_num_classes(model)
     y = None
@@ -434,9 +437,9 @@ def main():
 
     # Define input shape (e.g., CIFAR-10: 3x32x32)
     input_shape = {
-        "channels": getattr(config, "pixel_channels", 3),
-        "height": getattr(config, "image_size", 32),
-        "width": getattr(config, "image_size", 32),
+        "channels": getattr(config, "pixel_channels", 4),
+        "height": getattr(config, "image_size", 16),
+        "width": getattr(config, "image_size", 16),
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -468,8 +471,9 @@ def main():
     print("-" * 40)
 
     low_rank_model = create_model(config)
+    
 
-    compression_percentage = 1.0
+    compression_percentage = 0.5
     print(f"Applying low rank compression with {compression_percentage*100:.0f}% rank...")
     low_rank_model = low_rank_layer_replacement(low_rank_model, percentage=compression_percentage)
 
@@ -495,6 +499,7 @@ def main():
     adaptive_model = create_model(adaptive_config)
     adaptive_model = low_rank_layer_replacement(adaptive_model, percentage=compression_percentage, config=adaptive_config)
     adaptive_model = TimestepConditionedWrapper(adaptive_model, adaptive_config)
+    # adaptive_model.set_timestep_lower_bound(800)
 
     print("Parameter Analysis:")
     adaptive_params = count_parameters(adaptive_model, verbose=True)
@@ -513,13 +518,13 @@ def main():
     print("Full Rank DDIM:")
     full_rank_ddim_sim = simulate_ddim_flops_and_time(full_rank_model, input_shape, device, verbose=True)
 
-    print("\nLow Rank DDIM:")
-    low_rank_ddim_sim = simulate_ddim_flops_and_time(low_rank_model, input_shape, device, verbose=True)
+    # print("\nLow Rank DDIM:")
+    # low_rank_ddim_sim = simulate_ddim_flops_and_time(low_rank_model, input_shape, device, verbose=True)
 
-    print("\nAdaptive DDIM:")
-    adaptive_ddim_sim = simulate_ddim_flops_and_time(adaptive_model, input_shape, device, verbose=True)
+    # print("\nAdaptive DDIM:")
+    # adaptive_ddim_sim = simulate_ddim_flops_and_time(adaptive_model, input_shape, device, verbose=True)
 
-    print("\n" + "=" * 80)
+    # print("\n" + "=" * 80)
 
     # ============================================
     # Comparison and Summary

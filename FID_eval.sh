@@ -11,4 +11,59 @@ source /vol/cuda/12.0.0/setup.sh
 /usr/bin/nvidia-smi
 uptime
 
-python src/FID_eval.py --evaluate_path DiT20250517_225927
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0259.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0219.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0179.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0139.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0099.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0059.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0019.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0269.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0279.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+
+
+
+
+timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p tmux_log/$(date +%m%d)
+python -u src/FID_eval.py --evaluate_path DiT20250906_103859/EMA_model_0289.pt 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+

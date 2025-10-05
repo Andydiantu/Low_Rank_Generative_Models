@@ -8,6 +8,7 @@ from pathlib import Path
 import torch
 # from accelerate import Accelerator
 import argparse
+from low_rank_compression import low_rank_layer_replacement, TimestepConditionedWrapper
 
 
 def evaluate_fid(config, pipeline):
@@ -32,12 +33,25 @@ def main():
     print(evaluate_path)
     model = create_model(config)
 
+
+    # Move model to CUDA
+    model = model.cuda()
+    config.low_rank_pretraining = True
+
+    if config.low_rank_pretraining:
+        model = low_rank_layer_replacement(model, percentage=config.low_rank_rank, config=config)
+        print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    
     model.load_state_dict(torch.load(evaluate_path))
     print(f"Loaded model from {evaluate_path}")
     
-    # Move model to CUDA
-    model = model.cuda()
-    
+
+    # model = TimestepConditionedWrapper(model, config)
+    # print("Enabled timestep-conditioned rank scheduling")
+    # print(f"  Schedule: {config.rank_schedule}")
+    # print(f"  Min ratio: {config.rank_min_ratio}")
+    # print(f"  Max timesteps: {config.num_training_steps}")
+
     noise_scheduler = create_noise_scheduler(config)
     vae = SD_VAE() if config.vae else DummyAutoencoderKL()
     

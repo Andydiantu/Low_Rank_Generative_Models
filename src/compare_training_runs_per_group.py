@@ -389,6 +389,11 @@ def load_training_runs_config():
         #     # "checkpoints": ["0014", "0029", "0044"]
         # },
 
+        # "low rank full dataset with warm up full rank adaptive":{
+        #     "folder": "DiT20250829_134853",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179", "0209", "0239", "0269", "0299", "0329", "0359", "0389"]
+        # },
+
         # "low rank full dataset full model adaptive":{
         #     "folder": "DiT20250826_011148",
         #     "checkpoints": ["0049","0099", "0149", "0199", "0249", "0299"]
@@ -405,6 +410,36 @@ def load_training_runs_config():
         #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179", "0209", "0239", "0269", "0299", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
         # },
 
+        # "low rank adaptive curriculum reset optimiser":{
+        #     "folder": "DiT20250829_203650",
+        #     "checkpoints": ["0029", "0059", "0089", "0119", "0149", "0179", "0209", "0239", "0269", "0299", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
+
+        # "low rank adaptive curriculum reset optimiser with training slicing":{
+        #     "folder": "DiT20250829_222053",
+        #     "checkpoints": ["0029", "0089", "0149", "0209",  "0269", "0329", "0359"]
+        # },
+
+        # "low rank adaptive 50% parameter curriculum reset optimiser with training slicing":{
+        #     "folder": "DiT20250831_090253",
+        #     "checkpoints": ["0029", "0089", "0149", "0209",  "0269", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
+
+        # "low rank adaptive 25% parameter curriculum reset optimiser with training slicing":{
+        #     "folder": "DiT20250901_095523",
+        #     "checkpoints": ["0029", "0089", "0149", "0209",  "0269", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
+
+        # "low rank adaptive 75% parameter curriculum reset optimiser with training slicing":{
+        #     "folder": "DiT20250901_130212",
+        #     "checkpoints": ["0029", "0089", "0149", "0209",  "0269", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
+
+        # "low rank adaptive 75% parameter curriculum reset optimiser with training slicing 0.4 low bound":{
+        #     "folder": "DiT20250901_135056",
+        #     "checkpoints": ["0029", "0089", "0149", "0209",  "0269", "0329", "0359", "0389", "0419", "0449", "0479", "0509", "0539", "0569", "0599", "0629", "0659", "0689", "0719", "0749", "0779", "0809", "0839", "0869", "0899", "0929", "0959", "0989", "1019", "1049", "1079", "1109", "1139", "1169", "1199"]
+        # },
+
 
         "low rank full dataset full rank baseline":{
             "folder": "DiT20250827_011356",
@@ -416,6 +451,26 @@ def load_training_runs_config():
             "checkpoints": ["0029", "0089", "0149", "0209", "0269", "0329", "0389", "0449", "0509", "0569", "0629", "0689", "0749", "0809", "0869", "0929", "0989", "1049", "1109", "1169"]
         },
 
+        "low rank full dataset curriculum learning full rank adaptive":{
+            "folder": "DiT20250828_002539",
+            "checkpoints": ["0029", "0089", "0149", "0209", "0269", "0329", "0389", "0449", "0509", "0569", "0629", "0689", "0749", "0809", "0869", "0929", "0989", "1049", "1109", "1169"]
+        },
+
+        "low rank full dataset curriculum learning patience 5 full rank adaptive":{
+            "folder": "DiT20250828_155402",
+            "checkpoints": ["0029", "0089", "0149", "0209", "0269", "0329", "0389", "0449", "0509", "0569", "0629", "0689", "0749", "0809", "0869", "0929", "0989", "1049", "1109", "1169"]
+        },
+
+        "low rank full dataset full rank adaptive match activated curriculum slicing":{
+            "folder": "DiT20250830_234533",
+            "checkpoints": ["0049", "0099", "0149", "0199", "0249", "0299", "0349", "0399", "0449", "0499", "0549", "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        },
+
+
+        "low rank full dataset full rank adaptive match activated no curriculum slicing":{
+            "folder": "DiT20250830_233339",
+            "checkpoints": ["0049", "0099", "0149", "0199", "0249", "0299", "0349", "0399", "0449", "0499", "0549", "0599", "0649", "0699", "0749", "0799", "0849", "0899", "0949", "0999", "1049", "1099", "1149", "1199"]
+        },
 
         # "low rank adaptive first 1":{
         #     "folder": "DiT20250826_212216",
@@ -483,7 +538,7 @@ def load_training_runs_config():
 
 def main():
     config = TrainingConfig()
-    config.train_batch_size = 512
+    config.train_batch_size = 128
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Timestep group boundaries
@@ -566,9 +621,9 @@ def main():
             
             # Apply low rank compression if specified
             if "adaptive" in run_name.lower():
-                model = low_rank_layer_replacement(model, percentage=0.25, config=config)
+                model = low_rank_layer_replacement(model, percentage=config.low_rank_rank, config=config)
             else:
-                model = low_rank_layer_replacement(model, percentage=0.25)
+                model = low_rank_layer_replacement(model, percentage=config.low_rank_rank)
 
             print(f"number of parameters in model after compression is: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
 
@@ -723,7 +778,7 @@ def main():
         )
 
         # Save both PNG and HTML versions
-        output_dir = Path(__file__).parent.parent / "logs" / "DiT20250827_011934"
+        output_dir = Path(__file__).parent.parent / "logs" / "DiT20250901_135056"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         png_path = output_dir / f"timestep_group_{group_idx}_comparison.png"
@@ -790,7 +845,7 @@ def main():
     )
     
     # Save summary plot (both PNG and HTML)
-    output_dir = Path(__file__).parent.parent / "logs" / "DiT20250827_011934"
+    output_dir = Path(__file__).parent.parent / "logs" / "DiT20250901_135056"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     summary_png_path = output_dir / f"all_timestep_groups_{first_run_name.replace(' ', '_')}.png"

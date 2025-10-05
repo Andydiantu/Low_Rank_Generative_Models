@@ -35,7 +35,7 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
     if "CelebA" in dataset_name or "celeba" in dataset_name.lower() and not latents:
         base_transforms.extend([
             transforms.CenterCrop(178),     # from 178×218 → 178×178
-            transforms.Resize(128),          # resize to 128×128
+            transforms.Resize(64),          # resize to 128×128
         ])
     
     if not eval and not latents:
@@ -55,12 +55,21 @@ def preprocess_dataset(dataset, config, split, dataset_name, eval=False, latents
         tfm = transforms.Compose(base_transforms)
 
     # TODO: fix it so it works for both cifar10 and celebA
-    dataset.set_transform(
-        lambda examples: {
-            "img": [tfm(image.convert("RGB")) for image in examples["img"]] if "img" in examples else [tfm(image.convert("RGB")) for image in examples["image"]],
-            "label": examples["label"] if "label" in examples else None
-        }
-    )
+    def transform_fn(examples):
+        result = {}
+        # Handle image data
+        if "img" in examples:
+            result["img"] = [tfm(image.convert("RGB")) for image in examples["img"]]
+        elif "image" in examples:
+            result["img"] = [tfm(image.convert("RGB")) for image in examples["image"]]
+        
+        # Only include label if it exists in the dataset
+        if "label" in examples:
+            result["label"] = examples["label"]
+        
+        return result
+    
+    dataset.set_transform(transform_fn)
 
     return dataset
 
@@ -69,6 +78,7 @@ def create_dataloader(dataset_name, split, config, eval=False, latents=False, su
     if latents:
         dataset = load_pre_encoded_latents(dataset_name, split)
     else:
+        print(f"Loading dataset {dataset_name} {split} split")
         dataset = load_dataset_from_hf(dataset_name, split=split)
         dataset = preprocess_dataset(dataset, config, split, dataset_name, eval)
     

@@ -13,4 +13,4 @@ uptime
 
 timestamp=$(date +"%Y%m%d_%H%M%S")
 mkdir -p tmux_log/$(date +%m%d)
-python -u src/DiT_trainer.py 2>&1 | tee tmux_log/$(date +%m%d)/output_log_${timestamp}.txt
+python -u src/DiT_distill_trainer.py --teacher-checkpoint /vol/bitbucket/aw624/Low_Rank_Generative_Models/logs/DiT20250906_103859/EMA_model_0276.pt
