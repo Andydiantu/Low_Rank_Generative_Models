@@ -847,9 +847,14 @@ def main():
             print(f"  Max timesteps: {config.num_training_steps}")
 
     if config.load_pretrained_model:
+
         path = Path(__file__).parent.parent / config.pretrained_model_path
         print(f"Loading pretrained model from {path}")
-        model.load_state_dict(torch.load(path))
+
+        if config.timestep_conditioning:
+            model.base_model.load_state_dict(torch.load(path))
+        else:   
+            model.load_state_dict(torch.load(path))
         print("Loading complete")
 
 
