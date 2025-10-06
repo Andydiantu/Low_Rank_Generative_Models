@@ -1,3 +1,11 @@
+import os
+
+# set BEFORE importing anything from huggingface_* / transformers / diffusers / your vae wrapper
+os.environ["HF_HOME"] = "/vol/bitbucket/aw624/hf_cache"
+os.environ["HUGGINGFACE_HUB_CACHE"] = "/vol/bitbucket/aw624/hf_cache/hub"         # models/tokenizers/etc.
+os.environ["HF_DATASETS_CACHE"] = "/vol/bitbucket/aw624/hf_cache/datasets"        # datasets cache
+os.environ["TRANSFORMERS_CACHE"] = "/vol/bitbucket/aw624/hf_cache/transformers"   # legacy/extra
+
 from vae import SD_VAE
 import torch
 import numpy as np

@@ -11,4 +11,4 @@ source /vol/cuda/12.0.0/setup.sh
 /usr/bin/nvidia-smi
 uptime
 
-python src/FID_eval.py --evaluate_path DiT20250517_225927
+python -u src/DiT_trainer.py --set num_epochs=800 --set low_rank_pretraining=True --set timestep_conditioning=True
