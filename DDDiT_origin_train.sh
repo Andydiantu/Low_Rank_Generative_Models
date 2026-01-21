@@ -8,6 +8,8 @@ export PATH=/vol/bitbucket/${USER}/myvenv/bin/:$PATH
 # source ~/.bashrc
 source venv/bin/activate
 source /vol/cuda/12.0.0/setup.sh
+export HF_HOME=/vol/bitbucket/${USER}/.cache/huggingface
+export TORCH_HOME=/vol/bitbucket/${USER}/.cache/torch
 /usr/bin/nvidia-smi
 uptime
 
